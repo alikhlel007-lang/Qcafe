@@ -87,10 +87,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     cachedProfile["logoType"]?.let { _cafeLogoType.value = it }
                     cachedProfile["customLogoUri"]?.let { _cafeCustomLogoUri.value = it.ifBlank { null } }
                     cachedProfile["menuUrl"]?.let {
-                        if (it.isNotBlank()) {
-                            _webMenuUrl.value = it
-                            repository.baseWebMenuUrl = it
-                        }
+                        val resolved = resolveMenuUrl(it)
+                        _webMenuUrl.value = resolved
+                        repository.baseWebMenuUrl = resolved
                     }
                     cachedProfile["headerBannerUrl"]?.let { _cafeHeaderBannerUrl.value = it }
 
@@ -112,10 +111,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             remote["logoType"]?.let { if (it.isNotBlank()) _cafeLogoType.value = it }
                             remote["customLogoUri"]?.let { _cafeCustomLogoUri.value = it.ifBlank { null } }
                             remote["menuUrl"]?.let {
-                                if (it.isNotBlank()) {
-                                    _webMenuUrl.value = it
-                                    repository.baseWebMenuUrl = it
-                                }
+                                val resolved = resolveMenuUrl(it)
+                                _webMenuUrl.value = resolved
+                                repository.baseWebMenuUrl = resolved
                             }
                             remote["headerBannerUrl"]?.let { _cafeHeaderBannerUrl.value = it }
                         }
@@ -257,6 +255,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _webMenuUrl = MutableStateFlow(repository.baseWebMenuUrl)
     val webMenuUrl: StateFlow<String> = _webMenuUrl.asStateFlow()
+
+    private fun resolveMenuUrl(raw: String?): String {
+        val clean = raw?.trim().orEmpty()
+        return if (clean.isBlank() || clean.contains("alikhlel007-lang.github.io")) {
+            "https://qcafe.online/?table="
+        } else {
+            clean
+        }
+    }
 
     fun setCustomLogoUri(uri: String?) {
         _cafeCustomLogoUri.value = uri
@@ -679,10 +686,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         cachedProfile["logoType"]?.let { _cafeLogoType.value = it }
                         cachedProfile["customLogoUri"]?.let { _cafeCustomLogoUri.value = it.ifBlank { null } }
                         cachedProfile["menuUrl"]?.let {
-                            if (it.isNotBlank()) {
-                                _webMenuUrl.value = it
-                                repository.baseWebMenuUrl = it
-                            }
+                            val resolved = resolveMenuUrl(it)
+                            _webMenuUrl.value = resolved
+                            repository.baseWebMenuUrl = resolved
                         }
 
                         repository.updateExistingTablesCafeteriaId()
@@ -701,10 +707,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 remote["logoType"]?.let { if (it.isNotBlank()) _cafeLogoType.value = it }
                                 remote["customLogoUri"]?.let { _cafeCustomLogoUri.value = it.ifBlank { null } }
                                 remote["menuUrl"]?.let {
-                                    if (it.isNotBlank()) {
-                                        _webMenuUrl.value = it
-                                        repository.baseWebMenuUrl = it
-                                    }
+                                    val resolved = resolveMenuUrl(it)
+                                    _webMenuUrl.value = resolved
+                                    repository.baseWebMenuUrl = resolved
                                 }
                             }
                         }

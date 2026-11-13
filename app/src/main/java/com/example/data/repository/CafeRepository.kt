@@ -59,8 +59,8 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
             }
         }
 
-    // Default Web Menu URL for GitHub Pages
-    var baseWebMenuUrl: String = "https://alikhlel007-lang.github.io/vvvvv/?table="
+    // Default Web Menu URL
+    var baseWebMenuUrl: String = "https://qcafe.online/?table="
 
     // Multi-tenant cafeteria identifier (defaults to u_default until user logs in or registers)
     var currentCafeteriaId: String = "u_default"
@@ -427,7 +427,12 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
                 val welcome = snap.getString("welcomeNote") ?: ""
                 val logoType = snap.getString("logoType") ?: "custom"
                 val logoUri = snap.getString("customLogoUri") ?: ""
-                val menuUrl = snap.getString("menuUrl") ?: ""
+                val rawMenuUrl = snap.getString("menuUrl") ?: ""
+                val menuUrl = if (rawMenuUrl.isBlank() || rawMenuUrl.contains("alikhlel007-lang.github.io")) {
+                    baseWebMenuUrl
+                } else {
+                    rawMenuUrl
+                }
                 val theme = snap.getString("themeColor") ?: ""
                 val bannerUrl = snap.getString("headerBannerUrl") ?: snap.getString("bannerUrl") ?: ""
 
@@ -442,7 +447,7 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
                         welcomeNote = welcome,
                         logoType = logoType,
                         customLogoUri = logoUri.ifBlank { null },
-                        menuUrl = menuUrl.ifBlank { baseWebMenuUrl },
+                        menuUrl = menuUrl,
                         themeColor = theme.ifBlank { "#F7A038" },
                         headerBannerUrl = bannerUrl
                     )
@@ -548,7 +553,12 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
                     val label = doc.getString("label") ?: "طاولة $tableNum"
                     val capacity = doc.getLong("capacity")?.toInt() ?: 4
                     val secToken = doc.getString("securityToken") ?: ""
-                    val qrPayload = doc.getString("qrPayload") ?: buildTableQrUrl(baseWebMenuUrl, tableNum, secToken)
+                    val rawQrPayload = doc.getString("qrPayload")
+                    val qrPayload = if (rawQrPayload.isNullOrBlank() || rawQrPayload.contains("alikhlel007-lang.github.io")) {
+                        buildTableQrUrl(baseWebMenuUrl, tableNum, secToken)
+                    } else {
+                        rawQrPayload
+                    }
                     TableEntity(
                         id = "table_$tableNum",
                         tableNumber = tableNum,
