@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.ReceiptLong
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -122,7 +121,6 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
     // بعد التسديد تعود الطاولة نظيفة وجاهزة تماماً لاستقبال طلبات جديدة
     var showActiveTablesDialog by remember { mutableStateOf(false) }
     var showRevenueDetailsDialog by remember { mutableStateOf(false) }
-    var showResetSalesConfirmDialog by remember { mutableStateOf(false) }
     var orderForAuthorizedDeletion by remember { mutableStateOf<com.example.data.model.OrderRecord?>(null) }
 
     // تجميع الطلبات في جلسات ومحطات مستقلة لكل طاولة
@@ -683,8 +681,6 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
                                         Text("المبيعات الصافية (بدون النسبة):", fontSize = 12.sp, color = CafeTextSecondary)
                                         Text(netRevenueDisplay, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = CafeCyanPrimary)
                                     }
-                                    Spacer(modifier = Modifier.height(3.dp))
-                                    Text("إجمالي قيمة المواد والأصناف المباعة بدون رسوم الخدمة", fontSize = 10.sp, color = CafeTextSecondary.copy(alpha = 0.8f))
                                 }
                             }
 
@@ -708,8 +704,6 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
                                         }
                                         Text(accumulatedFeesDisplay, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = CafeGold)
                                     }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text("🔒 لا يمكن تصفيرها من تطبيق الكاشير إطلاقاً. يتم تصفيرها أو خصمها فقط من تطبيق المطور عند تحصيل الرسوم.", fontSize = 10.sp, color = CafeGold.copy(alpha = 0.9f), lineHeight = 15.sp)
                                 }
                             }
 
@@ -729,8 +723,6 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
                                         Text("الحساب الكلي شامل النسبة:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CafeTextPrimary)
                                         Text(totalRevenueDisplay, fontSize = 15.sp, fontWeight = FontWeight.Black, color = OrderStatusPaid)
                                     }
-                                    Spacer(modifier = Modifier.height(3.dp))
-                                    Text("المجموع الإجمالي الكلي المسدد مع رسوم الخدمة للوردية الحالية", fontSize = 10.sp, color = OrderStatusPaid.copy(alpha = 0.8f))
                                 }
                             }
 
@@ -741,67 +733,11 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
                                 Text("عدد الفواتير المسددة للوردية:", fontSize = 11.sp, color = CafeTextSecondary)
                                 Text("${paidOrders.size} فاتورة", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CafeTextPrimary)
                             }
-
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            // زر تصفير عداد المبيعات والصافي
-                            Button(
-                                onClick = { showResetSalesConfirmDialog = true },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E1906)),
-                                border = BorderStroke(1.dp, CafeGold.copy(alpha = 0.7f)),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, tint = CafeGold, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("تصفير المبيعات الصافية والحساب الكلي (دون المساس بالنسبة) 🔄", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CafeGold)
-                            }
                         }
                     },
                     confirmButton = {
                         TextButton(onClick = { showRevenueDetailsDialog = false }) {
                             Text("إغلاق", color = CafeCyanPrimary, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                )
-            }
-
-            // نافذة تأكيد تصفير عداد المبيعات
-            if (showResetSalesConfirmDialog) {
-                AlertDialog(
-                    onDismissRequest = { showResetSalesConfirmDialog = false },
-                    containerColor = CafeSurface,
-                    shape = RoundedCornerShape(20.dp),
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, tint = CafeGold, modifier = Modifier.size(22.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("تصفير عداد المبيعات", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        }
-                    },
-                    text = {
-                        Text(
-                            text = "هل ترغب بتصفير عداد المبيعات الصافية والحساب الكلي للوردية لتبدأ من 0 د.ع؟\n\n🔒 تنبيه: النسبة المتراكمة (رسوم الخدمة) تظل محفوظة ومحمية ولا يمكن تصفيرها من الكاشير، بل يتم تصفيرها فقط من تطبيق المطور عند تحصيل الرسوم.",
-                            color = CafeTextSecondary,
-                            fontSize = 13.sp,
-                            lineHeight = 20.sp
-                        )
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                viewModel.resetSalesCounters()
-                                showResetSalesConfirmDialog = false
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text("نعم، تصفير الآن 🔄", color = Color.White, fontWeight = FontWeight.Bold)
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showResetSalesConfirmDialog = false }) {
-                            Text("إلغاء", color = CafeTextSecondary)
                         }
                     }
                 )
