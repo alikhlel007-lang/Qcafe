@@ -94,6 +94,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     cachedProfile["headerBannerUrl"]?.let { _cafeHeaderBannerUrl.value = it }
 
                     repository.currentCafeteriaId = uid
+                    repository.isSystemShutdown.value = repository.loadSystemShutdownPref(uid)
                     repository.updateExistingTablesCafeteriaId()
                     repository.startFirestoreOrdersListener(viewModelScope, uid)
                     repository.startCafeteriaStatusListener(uid)
@@ -138,12 +139,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Real-time Cafeteria Suspension State (Live lock)
     val isCafeSuspended: StateFlow<Boolean> = repository.isCafeSuspended.asStateFlow()
+    val isSystemShutdown: StateFlow<Boolean> = repository.isSystemShutdown.asStateFlow()
     val suspensionReason: StateFlow<String> = repository.cafeSuspensionReason.asStateFlow()
     val cafeMaxDebtLimit: StateFlow<Double> = repository.cafeMaxDebtLimit.asStateFlow()
     val cafeRemainingFee: StateFlow<Double> = repository.cafeRemainingFee.asStateFlow()
     val isOverDebtLimit: StateFlow<Boolean> = repository.isOverDebtLimit.asStateFlow()
     val cafeNotifications: StateFlow<List<com.example.data.model.CafeNotificationItem>> = repository.cafeNotifications.asStateFlow()
     val salesResetTimestamp: StateFlow<Long> = repository.salesResetTimestamp.asStateFlow()
+
+    fun setSystemShutdown(shutdown: Boolean) {
+        repository.setSystemShutdown(viewModelScope, shutdown)
+    }
 
     fun resetSalesCounters() {
         repository.resetSalesCounters()
@@ -691,6 +697,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             repository.baseWebMenuUrl = resolved
                         }
 
+                        repository.isSystemShutdown.value = repository.loadSystemShutdownPref(user.id)
                         repository.updateExistingTablesCafeteriaId()
                         repository.startFirestoreOrdersListener(viewModelScope, user.id)
                         repository.startCafeteriaStatusListener(user.id)

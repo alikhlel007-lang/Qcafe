@@ -66,14 +66,29 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
     var currentCafeteriaId: String = "u_default"
 
     private var ordersListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+    private var ordersScope: CoroutineScope? = null
+    private var ordersCafeId: String? = null
     private var cafeStatusListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
     val isCafeSuspended = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val isSystemShutdown = kotlinx.coroutines.flow.MutableStateFlow(false)
     val cafeSuspensionReason = kotlinx.coroutines.flow.MutableStateFlow("")
     val cafeMaxDebtLimit = kotlinx.coroutines.flow.MutableStateFlow(50000.0)
     val cafeRemainingFee = kotlinx.coroutines.flow.MutableStateFlow(0.0)
     val isOverDebtLimit = kotlinx.coroutines.flow.MutableStateFlow(false)
     val cafeNotifications = kotlinx.coroutines.flow.MutableStateFlow<List<com.example.data.model.CafeNotificationItem>>(emptyList())
     private val deletedOrderIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    fun loadSystemShutdownPref(cafeId: String): Boolean {
+        if (cafeId.isBlank() || cafeId == "u_default") return false
+        return context?.getSharedPreferences("cafe_system_prefs", android.content.Context.MODE_PRIVATE)
+            ?.getBoolean("shutdown_$cafeId", false) ?: false
+    }
+
+    private fun saveSystemShutdownPref(cafeId: String, shutdown: Boolean) {
+        if (cafeId.isBlank() || cafeId == "u_default") return
+        context?.getSharedPreferences("cafe_system_prefs", android.content.Context.MODE_PRIVATE)
+            ?.edit()?.putBoolean("shutdown_$cafeId", shutdown)?.apply()
+    }
 
     val salesResetTimestamp = kotlinx.coroutines.flow.MutableStateFlow(
         context?.getSharedPreferences("cafe_sales_prefs", android.content.Context.MODE_PRIVATE)
@@ -94,12 +109,15 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
         val targetId = cafeId.ifBlank { currentCafeteriaId }
         if (targetId.isBlank() || targetId == "u_default") return
 
+        isSystemShutdown.value = loadSystemShutdownPref(targetId)
+
         try {
             cafeStatusListenerRegistration = firestore?.collection("cafeterias")?.document(targetId)
                 ?.addSnapshotListener { snapshot, error ->
                     if (error != null || snapshot == null) return@addSnapshotListener
                     if (snapshot.exists()) {
                         val active = snapshot.getBoolean("isActive") ?: true
+                        val shutdown = snapshot.getBoolean("isSystemShutdown") ?: false
                         val reason = snapshot.getString("suspensionReason")
                             ?: "تم إيقاف عمل الكافتيريا من قِبل إدارة النظام لمراجعة الحسابات"
                         val limit = snapshot.getDouble("maxDebtLimit")
@@ -109,6 +127,14 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
                         cafeMaxDebtLimit.value = limit
                         isCafeSuspended.value = !active
                         cafeSuspensionReason.value = reason
+                        isSystemShutdown.value = shutdown
+                        saveSystemShutdownPref(targetId, shutdown)
+
+                        if (shutdown) {
+                            stopFirestoreOrdersListener()
+                        } else if (ordersListenerRegistration == null && ordersScope != null && !ordersCafeId.isNullOrBlank()) {
+                            startFirestoreOrdersListener(ordersScope!!, ordersCafeId!!)
+                        }
 
                         checkDebtAndBuildNotifications(targetId, limit, !active, reason)
                     }
@@ -226,6 +252,7 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
         cafeStatusListenerRegistration?.remove()
         cafeStatusListenerRegistration = null
         isCafeSuspended.value = false
+        isSystemShutdown.value = false
         cafeSuspensionReason.value = ""
     }
 
@@ -243,6 +270,14 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
 
         val targetCafeId = cafeId.ifBlank { currentCafeteriaId }
         if (targetCafeId.isBlank() || targetCafeId == "u_default") {
+            return
+        }
+
+        ordersScope = scope
+        ordersCafeId = targetCafeId
+
+        if (isSystemShutdown.value || loadSystemShutdownPref(targetCafeId)) {
+            isSystemShutdown.value = true
             return
         }
 
@@ -1528,6 +1563,31 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
         }
     }
 
+    fun setSystemShutdown(scope: CoroutineScope, shutdown: Boolean) {
+        val targetId = currentCafeteriaId
+        if (targetId.isBlank() || targetId == "u_default") return
+
+        isSystemShutdown.value = shutdown
+        saveSystemShutdownPref(targetId, shutdown)
+
+        if (shutdown) {
+            stopFirestoreOrdersListener()
+        } else {
+            startFirestoreOrdersListener(ordersScope ?: scope, targetId)
+        }
+
+        try {
+            firestore?.collection("cafeterias")?.document(targetId)
+                ?.set(
+                    mapOf(
+                        "isSystemShutdown" to shutdown,
+                        "systemShutdownUpdatedAt" to System.currentTimeMillis()
+                    ),
+                    com.google.firebase.firestore.SetOptions.merge()
+                )
+        } catch (_: Exception) {}
+    }
+
     fun stopFirestoreOrdersListener() {
         ordersListenerRegistration?.remove()
         ordersListenerRegistration = null
@@ -1535,6 +1595,9 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
 
     fun logout() {
         stopFirestoreOrdersListener()
+        ordersScope = null
+        ordersCafeId = null
+        isSystemShutdown.value = false
         try {
             firebaseAuth.signOut()
         } catch (_: Exception) {}

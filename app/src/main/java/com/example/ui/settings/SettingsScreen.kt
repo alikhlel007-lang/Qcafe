@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Receipt
@@ -173,6 +174,8 @@ fun SettingsScreen(viewModel: MainViewModel) {
 
     // Accordion State - None expanded by default so all options are at the same clean level
     var expandedSection by remember { mutableStateOf<String?>(null) }
+    val isSystemShutdown by viewModel.isSystemShutdown.collectAsState()
+    var showShutdownConfirmDialog by remember { mutableStateOf(false) }
     var showLogoutConfirmDialog by remember { mutableStateOf(false) }
     var orderToDelete by remember { mutableStateOf<OrderRecord?>(null) }
     var showBulkDeleteDialog by remember { mutableStateOf(false) }
@@ -1726,7 +1729,115 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 }
 
                 // ==========================================
-                // 7. تسجيل الخروج
+                // 7. إيقاف وتشغيل النظام (عند إغلاق الكافتيريا)
+                // ==========================================
+                item {
+                    val isExpanded = expandedSection == "system_power"
+                    SettingsOptionCard(
+                        title = "إيقاف تشغيل النظام",
+                        subtitle = if (isSystemShutdown) "النظام متوقف حالياً (تم إيقاف استلام الطلبات)" else "إيقاف النظام مؤقتاً عند إغلاق الكافتيريا",
+                        icon = Icons.Default.PowerSettingsNew,
+                        accentColor = accentColor,
+                        isExpanded = isExpanded,
+                        onHeaderClick = {
+                            expandedSection = if (isExpanded) null else "system_power"
+                        }
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        if (isSystemShutdown) Color(0xFF3B1519) else Color(0xFF102A22)
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (isSystemShutdown) Color(0xFFE53935).copy(alpha = 0.5f) else Color(0xFF10B981).copy(alpha = 0.45f),
+                                        RoundedCornerShape(12.dp)
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "حالة النظام الحالية:",
+                                    fontSize = 12.sp,
+                                    color = CafeTextSecondary
+                                )
+                                Text(
+                                    text = if (isSystemShutdown) "متوقف (الكافتيريا مغلقة)" else "يعمل ويستلم الطلبات",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSystemShutdown) Color(0xFFFF6B6B) else Color(0xFF34D399)
+                                )
+                            }
+
+                            if (!isSystemShutdown) {
+                                Button(
+                                    onClick = { showShutdownConfirmDialog = true },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .testTag("settings_shutdown_system_btn"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF3B1519),
+                                        contentColor = Color(0xFFFF6B6B)
+                                    ),
+                                    border = ButtonDefaults.outlinedButtonBorder.copy(
+                                        brush = Brush.horizontalGradient(listOf(Color(0xFFE53935), Color(0xFFC62828))),
+                                        width = 1.2.dp
+                                    )
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.PowerSettingsNew,
+                                            contentDescription = "إيقاف تشغيل النظام",
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "إيقاف تشغيل النظام",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            } else {
+                                Button(
+                                    onClick = { viewModel.setSystemShutdown(false) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .testTag("settings_resume_system_btn"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF10B981),
+                                        contentColor = Color(0xFF032117)
+                                    )
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.PowerSettingsNew,
+                                            contentDescription = "تشغيل النظام",
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "تشغيل النظام واستلام الطلبات",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // 8. تسجيل الخروج
                 // ==========================================
                 item {
                     val isExpanded = expandedSection == "logout"
@@ -1809,6 +1920,60 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 }
             }
         }
+    }
+
+    // DIALOG: System Shutdown Confirmation
+    if (showShutdownConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showShutdownConfirmDialog = false },
+            containerColor = CafeSurface,
+            shape = RoundedCornerShape(20.dp),
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.PowerSettingsNew,
+                    contentDescription = null,
+                    tint = Color(0xFFFF5252),
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "تأكيد إيقاف تشغيل النظام",
+                    color = CafeTextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "هل تريد إيقاف تشغيل النظام وإغلاق الكافتيريا الآن؟ سيتم إيقاف استلام الطلبات وإظهار تنبيه للزبائن بأن الكافتيريا مغلقة حالياً.",
+                    color = CafeTextSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showShutdownConfirmDialog = false
+                        viewModel.setSystemShutdown(true)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFE53935),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("confirm_shutdown_system_btn")
+                ) {
+                    Text("نعم، إيقاف النظام", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showShutdownConfirmDialog = false }) {
+                    Text("إلغاء", color = CafeTextSecondary)
+                }
+            }
+        )
     }
 
     // DIALOG: Logout Confirmation

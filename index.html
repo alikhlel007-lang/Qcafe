@@ -1307,10 +1307,16 @@
           if (subEl) subEl.innerText = `طاولة رقم ${tableNumber} - مرحباً بكم`;
 
           const isActive = data.isActive !== false;
+          const isShutdown = data.isSystemShutdown === true;
           if (!isActive) {
+            hideClosedOverlay();
             showSuspendedOverlay(data.suspensionReason || 'عذراً، تم ايقاف النضام في هذه الكافتيريا حالياً لمراجعة الحسابات.');
+          } else if (isShutdown) {
+            hideSuspendedOverlay();
+            showClosedOverlay();
           } else {
             hideSuspendedOverlay();
+            hideClosedOverlay();
           }
 
           // Smart Caching: Compare menu update timestamp with locally stored version
@@ -1771,8 +1777,8 @@
     let isSubmittingOrder = false;
     function submitOrder() {
       if (isSubmittingOrder) return;
-      if (document.getElementById('suspendedModal')?.style.display === 'flex') {
-        alert('عذراً، استقبال الطلبات في هذه الكافتيريا متوقف حالياً.');
+      if (document.getElementById('suspendedModal')?.style.display === 'flex' || document.getElementById('closedModal')?.style.display === 'flex') {
+        alert('عذراً، الكافتيريا مغلقة حالياً وتم إيقاف استقبال الطلبات.');
         return;
       }
       if (cart.length === 0) return;
@@ -1933,6 +1939,43 @@
 
     function hideSuspendedOverlay() {
       const overlay = document.getElementById('suspendedModal');
+      if (overlay) overlay.style.display = 'none';
+    }
+
+    // Cafeteria Closed / System Shutdown Overlay Handlers
+    function showClosedOverlay() {
+      let overlay = document.getElementById('closedModal');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'closedModal';
+        overlay.className = 'modal-overlay';
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.zIndex = '999999';
+        overlay.innerHTML = `
+          <div class="center-dialog" style="border-color:#F59E0B; max-width:400px; padding:28px 20px; text-align:center;">
+            <div class="success-icon-wrap" style="border-color:#F59E0B; background:rgba(245,158,11,0.15); color:#F59E0B; margin:0 auto 12px auto;">
+              <i class="fa-solid fa-power-off" style="font-size:28px;"></i>
+            </div>
+            <h2 style="font-size:20px; font-weight:900; color:#F59E0B; margin-bottom:8px;">الكافتيريا مغلقة حالياً</h2>
+            <p style="font-size:13px; color:var(--text-main); font-weight:700; line-height:1.6; margin-bottom:14px;">
+              تم إيقاف تشغيل النظام واستلام الطلبات مؤقتاً لانتهاء ساعات العمل.
+            </p>
+            <div style="font-size:12px; color:#A89B91; background:#1F1916; padding:12px; border-radius:12px; border:1px solid #382F2A; line-height:1.6;">
+              نشكركم لزيارتكم ونسعد بخدمتكم مجدداً عند إعادة الافتتاح.
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+      }
+      overlay.style.display = 'flex';
+      closeCartModal();
+      const cartBar = document.getElementById('floatingCart');
+      if (cartBar) cartBar.style.display = 'none';
+    }
+
+    function hideClosedOverlay() {
+      const overlay = document.getElementById('closedModal');
       if (overlay) overlay.style.display = 'none';
     }
 
