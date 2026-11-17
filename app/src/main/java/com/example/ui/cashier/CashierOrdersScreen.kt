@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -121,6 +122,7 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
     // بعد التسديد تعود الطاولة نظيفة وجاهزة تماماً لاستقبال طلبات جديدة
     var showActiveTablesDialog by remember { mutableStateOf(false) }
     var showRevenueDetailsDialog by remember { mutableStateOf(false) }
+    var showResetSalesConfirmDialog by remember { mutableStateOf(false) }
     var orderForAuthorizedDeletion by remember { mutableStateOf<com.example.data.model.OrderRecord?>(null) }
 
     // تجميع الطلبات في جلسات ومحطات مستقلة لكل طاولة
@@ -614,20 +616,46 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
                                             }
 
                                             Spacer(modifier = Modifier.height(10.dp))
-                                            Button(
-                                                onClick = {
-                                                    viewModel.payAllOrdersForTable(tableActiveOrders)
-                                                    showActiveTablesDialog = false
-                                                    Toast.makeText(context, "تم تسديد حساب طاولة $tableNum بنجاح! 💵", Toast.LENGTH_SHORT).show()
-                                                },
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = OrderStatusPaid,
-                                                    contentColor = Color(0xFF032125)
-                                                ),
-                                                shape = RoundedCornerShape(10.dp),
-                                                modifier = Modifier.fillMaxWidth()
+                                            val tablePhone = tableActiveOrders.mapNotNull { it.customerPhone.ifBlank { null } }.firstOrNull() ?: ""
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text("تسديد حساب طاولة $tableNum بالكامل 💵", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                                                Button(
+                                                    onClick = {
+                                                        com.example.util.ReceiptPrinter.sendWhatsAppInvoice(
+                                                            context = context,
+                                                            rawPhone = tablePhone,
+                                                            tableNumber = tableNum,
+                                                            orders = tableActiveOrders,
+                                                            cafeName = cafeName
+                                                        )
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = Color(0xFF25D366),
+                                                        contentColor = Color.White
+                                                    ),
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+                                                ) {
+                                                    Text("واتساب", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                                                }
+
+                                                Button(
+                                                    onClick = {
+                                                        viewModel.payAllOrdersForTable(tableActiveOrders)
+                                                        showActiveTablesDialog = false
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = OrderStatusPaid,
+                                                        contentColor = Color(0xFF032125)
+                                                    ),
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Text("تسديد حساب طاولة $tableNum بالكامل", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                                                }
                                             }
                                         }
                                     }
@@ -733,11 +761,67 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
                                 Text("عدد الفواتير المسددة للوردية:", fontSize = 11.sp, color = CafeTextSecondary)
                                 Text("${paidOrders.size} فاتورة", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CafeTextPrimary)
                             }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // زر تصفير المبيعات
+                            Button(
+                                onClick = { showResetSalesConfirmDialog = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E1906)),
+                                border = BorderStroke(1.dp, CafeGold.copy(alpha = 0.7f)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = CafeGold, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("تصفير المبيعات", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CafeGold)
+                            }
                         }
                     },
                     confirmButton = {
                         TextButton(onClick = { showRevenueDetailsDialog = false }) {
                             Text("إغلاق", color = CafeCyanPrimary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                )
+            }
+
+            // نافذة تأكيد تصفير المبيعات
+            if (showResetSalesConfirmDialog) {
+                AlertDialog(
+                    onDismissRequest = { showResetSalesConfirmDialog = false },
+                    containerColor = CafeSurface,
+                    shape = RoundedCornerShape(20.dp),
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = CafeGold, modifier = Modifier.size(22.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("تصفير المبيعات", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                    },
+                    text = {
+                        Text(
+                            text = "هل ترغب بتصفير عداد المبيعات لتبدأ من 0 د.ع؟",
+                            color = CafeTextSecondary,
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                viewModel.resetSalesCounters()
+                                showResetSalesConfirmDialog = false
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("نعم، تصفير الآن", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showResetSalesConfirmDialog = false }) {
+                            Text("إلغاء", color = CafeTextSecondary)
                         }
                     }
                 )
@@ -863,59 +947,24 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
                                 menuItems = menuItems,
                                 onAdvanceSession = { nextStatus ->
                                     viewModel.advanceTableSession(session.orders, nextStatus)
-                                    Toast.makeText(
-                                        context,
-                                        "تم تحويل طاولة ${session.tableNumber} إلى ${nextStatus.titleAr} بنجاح",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
                                 },
                                 onMergeCustomerOrders = { ordersToMerge ->
                                     viewModel.mergeCustomerOrders(ordersToMerge)
-                                    Toast.makeText(
-                                        context,
-                                        "تم دمج طلبات الزبون بنجاح 🔗",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
                                 },
                                 onMergeWithPreparing = { newOrder, preparingOrders ->
                                     viewModel.mergeNewOrderWithPreparing(newOrder, preparingOrders)
-                                    Toast.makeText(
-                                        context,
-                                        "تم دمج الطلب مع طلب التحضير بنجاح 🔗",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
                                 },
                                 onRejectSession = {
                                     viewModel.rejectTableSession(session.orders)
-                                    Toast.makeText(
-                                        context,
-                                        "تم رفض طلبات طاولة ${session.tableNumber} بنجاح ❌",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
                                 },
                                 onPaySingleOrder = { order ->
                                     viewModel.payOrders(listOf(order))
-                                    Toast.makeText(
-                                        context,
-                                        "تم تسديد حساب الزبون (${order.customerName}) بنجاح! ✅",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
                                 },
                                 onPayAllSession = { unpaidOrders ->
                                     viewModel.payAllOrdersForTable(unpaidOrders)
-                                    Toast.makeText(
-                                        context,
-                                        "تم تسديد فاتورة طاولة ${session.tableNumber} بالكامل بنجاح! 💵",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
                                 },
                                 onDeleteSession = {
                                     viewModel.deleteTableSession(session.orders)
-                                    Toast.makeText(
-                                        context,
-                                        "تم مسح سجل طاولة ${session.tableNumber}",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
                                 },
                                 onRequestDeletePaidOrder = { order ->
                                     orderForAuthorizedDeletion = order
@@ -1266,7 +1315,7 @@ fun CompactPaidInvoiceCard(
                             contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
                             modifier = Modifier.height(32.dp)
                         ) {
-                            Text("واتساب 💬", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                            Text("واتساب", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
                         }
                     }
 
@@ -1666,7 +1715,7 @@ fun UnifiedTableSessionCard(
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                         modifier = Modifier.height(30.dp)
                                     ) {
-                                        Text("واتساب 💬", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        Text("واتساب", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                     }
                                     Spacer(modifier = Modifier.width(6.dp))
                                 }
@@ -1686,7 +1735,7 @@ fun UnifiedTableSessionCard(
                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                     ) {
                                         Text(
-                                            text = "تسديد حساب $customerName 💵",
+                                            text = "تسديد حساب $customerName",
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -1952,7 +2001,7 @@ fun UnifiedTableSessionCard(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
-                                        text = "تسديد الفاتورة بالكامل (دفع كلي / جماعي) 💵",
+                                        text = "تسديد الفاتورة بالكامل (دفع كلي / جماعي)",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.ExtraBold
                                     )
@@ -2058,7 +2107,7 @@ fun UnifiedTableSessionCard(
                                     shape = RoundedCornerShape(10.dp),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
-                                    Text("واتساب 💬", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                                    Text("واتساب", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
                                 }
                             }
                         }

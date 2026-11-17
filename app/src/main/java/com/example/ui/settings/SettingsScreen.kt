@@ -1453,7 +1453,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
                                                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp),
                                                                 modifier = Modifier.height(32.dp)
                                                             ) {
-                                                                Text("واتساب 💬", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                                Text("واتساب", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                                             }
                                                         }
 
