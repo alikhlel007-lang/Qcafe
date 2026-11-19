@@ -27,11 +27,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -123,8 +125,7 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
     // تجميع الطلبات في جلسات موحدة حسب المراحل المستقلة لكل طاولة
     // بعد التسديد تعود الطاولة نظيفة وجاهزة تماماً لاستقبال طلبات جديدة
     var showActiveTablesDialog by remember { mutableStateOf(false) }
-    var showRevenueDetailsDialog by remember { mutableStateOf(false) }
-    var showResetSalesConfirmDialog by remember { mutableStateOf(false) }
+    var showWaiterCallsDialog by remember { mutableStateOf(false) }
     var orderForAuthorizedDeletion by remember { mutableStateOf<com.example.data.model.OrderRecord?>(null) }
 
     // تجميع الطلبات في جلسات ومحطات مستقلة لكل طاولة
@@ -256,49 +257,7 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
 
     val cafeName by viewModel.cafeName.collectAsState()
     val isSystemShutdown by viewModel.isSystemShutdown.collectAsState()
-    val salesResetTimestamp by viewModel.salesResetTimestamp.collectAsState()
-    val cafeRemainingFee by viewModel.cafeRemainingFee.collectAsState()
-
-    // 1. الفواتير المسددة في الوردية/الجلسة الحالية (الصافي والكلي يمكن تصفيرهما من قِبل الكاشير)
-    val paidOrders = orders.filter { it.status == OrderStatus.PAID && it.timestamp >= salesResetTimestamp }
-    val paidSubtotalIqd = paidOrders.filter { it.currency != "$" && it.currency != "USD" }.sumOf { it.subtotal }
-    val paidSubtotalUsd = paidOrders.filter { it.currency == "$" || it.currency == "USD" }.sumOf { it.subtotal }
-    val paidTotalIqd = paidOrders.filter { it.currency != "$" && it.currency != "USD" }.sumOf { it.totalPrice }
-    val paidTotalUsd = paidOrders.filter { it.currency == "$" || it.currency == "USD" }.sumOf { it.totalPrice }
-
-    // 2. النسبة المتراكمة: لا يمكن حذفها أو تصفيرها من تطبيق الكاشير إطلاقاً
-    // تُحسب تراكمياً من جميع فواتير الكافتيريا المسددة وتُخصم فقط عند تحصيل الديون إدارياً من لوحة المطور
-    val allTimePaidOrders = orders.filter { it.status == OrderStatus.PAID }
-    val allTimeFeesIqd = allTimePaidOrders.filter { it.currency != "$" && it.currency != "USD" }.sumOf { it.serviceFee }
-    val allTimeFeesUsd = allTimePaidOrders.filter { it.currency == "$" || it.currency == "USD" }.sumOf { it.serviceFee }
-
-    // العرض الافتراضي للمبيعات المسددة: السعر بدون النسبة (الصافي) للوردية الحالية
-    val netRevenueDisplay = when {
-        paidSubtotalIqd > 0 && paidSubtotalUsd > 0 ->
-            "${OrderFeeCalculator.formatPrice(paidSubtotalIqd, "د.ع")} + ${OrderFeeCalculator.formatPrice(paidSubtotalUsd, "$")}"
-        paidSubtotalUsd > 0 -> OrderFeeCalculator.formatPrice(paidSubtotalUsd, "$")
-        else -> OrderFeeCalculator.formatPrice(paidSubtotalIqd, "د.ع")
-    }
-
-    // النسبة المتراكمة: ثابتة ومحمية من الحذف والتصفير في الكاشير
-    val accumulatedFeesDisplay = if (cafeRemainingFee > 0.0) {
-        OrderFeeCalculator.formatPrice(cafeRemainingFee, "د.ع")
-    } else {
-        when {
-            allTimeFeesIqd > 0 && allTimeFeesUsd > 0 ->
-                "${OrderFeeCalculator.formatPrice(allTimeFeesIqd, "د.ع")} + ${OrderFeeCalculator.formatPrice(allTimeFeesUsd, "$")}"
-            allTimeFeesUsd > 0 -> OrderFeeCalculator.formatPrice(allTimeFeesUsd, "$")
-            else -> OrderFeeCalculator.formatPrice(allTimeFeesIqd, "د.ع")
-        }
-    }
-
-    // الحساب الكلي شامل النسبة للوردية الحالية
-    val totalRevenueDisplay = when {
-        paidTotalIqd > 0 && paidTotalUsd > 0 ->
-            "${OrderFeeCalculator.formatPrice(paidTotalIqd, "د.ع")} + ${OrderFeeCalculator.formatPrice(paidTotalUsd, "$")}"
-        paidTotalUsd > 0 -> OrderFeeCalculator.formatPrice(paidTotalUsd, "$")
-        else -> OrderFeeCalculator.formatPrice(paidTotalIqd, "د.ع")
-    }
+    val waiterCalls by viewModel.waiterCalls.collectAsState()
 
     Box(
         modifier = Modifier
@@ -446,13 +405,72 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
                     onClick = { showActiveTablesDialog = true }
                 )
                 MetricCard(
-                    title = "المبيعات المسددة",
-                    value = netRevenueDisplay,
-                    valueColor = CafeCyanPrimary,
+                    title = "نداءات النادل",
+                    value = if (waiterCalls.isNotEmpty()) "${waiterCalls.size} نداء" else "0",
+                    valueColor = if (waiterCalls.isNotEmpty()) Color(0xFFFF5252) else CafeCyanPrimary,
                     hasArrow = true,
-                    modifier = Modifier.weight(1.3f),
-                    onClick = { showRevenueDetailsDialog = true }
+                    modifier = Modifier
+                        .weight(1.3f)
+                        .testTag("cashier_waiter_calls_card"),
+                    onClick = { showWaiterCallsDialog = true }
                 )
+            }
+
+            if (waiterCalls.isNotEmpty()) {
+                val latestCall = waiterCalls.first()
+                val callActionLabel = if (latestCall.type == "BILL") "طلب الحساب" else "استدعاء النادل"
+                Surface(
+                    onClick = { showWaiterCallsDialog = true },
+                    color = Color(0xFF2B1707),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, CafeGold.copy(alpha = 0.85f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .testTag("cashier_waiter_call_banner")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsActive,
+                                contentDescription = "نداء النادل",
+                                tint = CafeGold,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "طاولة ${latestCall.tableNumber} • $callActionLabel" +
+                                    if (waiterCalls.size > 1) " (+${waiterCalls.size - 1} أخرى)" else "",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = CafeGold
+                            )
+                        }
+                        Button(
+                            onClick = { viewModel.resolveWaiterCall(latestCall.id) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CafeGold,
+                                contentColor = Color(0xFF1F1400)
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier
+                                .height(32.dp)
+                                .testTag("cashier_resolve_latest_call_btn")
+                        ) {
+                            Text("تمت التلبية", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                }
             }
 
             // نافذة حوارية: الطاولات النشطة لاختيار رقم الطاولة وتسديد حسابها مع تفاصيل كل الطلبات والأسعار
@@ -731,17 +749,27 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
                 )
             }
 
-            // نافذة حوارية: تفاصيل المبيعات المسددة والنسبة المتراكمة والحساب الكلي
-            if (showRevenueDetailsDialog) {
+            // نافذة حوارية: نداءات الزبائن للنادل وخدمات الطاولات
+            if (showWaiterCallsDialog) {
                 AlertDialog(
-                    onDismissRequest = { showRevenueDetailsDialog = false },
+                    onDismissRequest = { showWaiterCallsDialog = false },
                     containerColor = CafeSurface,
                     shape = RoundedCornerShape(20.dp),
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.AttachMoney, contentDescription = null, tint = CafeCyanPrimary, modifier = Modifier.size(24.dp))
+                            Icon(
+                                imageVector = Icons.Default.NotificationsActive,
+                                contentDescription = null,
+                                tint = CafeGold,
+                                modifier = Modifier.size(22.dp)
+                            )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("تفاصيل المبيعات ورسوم الخدمة", color = CafeTextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(
+                                text = "نداءات النادل (${waiterCalls.size})",
+                                color = CafeTextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
                         }
                     },
                     text = {
@@ -751,137 +779,112 @@ fun CashierOrdersScreen(viewModel: MainViewModel) {
                                 .verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text("بيانات الفواتير المسددة والمبالغ ورسوم الخدمة التراكمية:", fontSize = 12.sp, color = CafeTextSecondary)
-
-                            // 1. المبيعات بدون النسبة (الصافي)
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = CafeSurfaceVariant),
-                                border = BorderStroke(1.dp, CafeCyanPrimary.copy(alpha = 0.4f))
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("المبيعات الصافية (بدون النسبة):", fontSize = 12.sp, color = CafeTextSecondary)
-                                        Text(netRevenueDisplay, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = CafeCyanPrimary)
-                                    }
+                            if (waiterCalls.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "لا توجد نداءات نادل حالياً. عند ضغط الزبون على «استدعاء النادل» من المنيو سيظهر النداء هنا فوراً.",
+                                        color = CafeTextSecondary,
+                                        fontSize = 12.sp,
+                                        textAlign = TextAlign.Center,
+                                        lineHeight = 18.sp
+                                    )
                                 }
-                            }
-
-                            // 2. النسبة المتراكمة للمبيعات (رسوم الخدمة) - غير قابلة للحذف أو التصفير من الكاشير
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF261D04)),
-                                border = BorderStroke(1.dp, CafeGold.copy(alpha = 0.5f))
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(
+                            } else {
+                                waiterCalls.forEach { call ->
+                                    val timeFormatted = remember(call.timestamp) {
+                                        SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(call.timestamp))
+                                    }
+                                    val typeTitle = if (call.type == "BILL") "طلب الحساب 🧾" else "استدعاء النادل 🛎️"
+                                    Card(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(containerColor = CafeSurfaceVariant),
+                                        border = BorderStroke(1.dp, CafeGold.copy(alpha = 0.55f))
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.Lock, contentDescription = null, tint = CafeGold, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("النسبة المتراكمة (رسوم الخدمة):", fontSize = 12.sp, color = CafeGold, fontWeight = FontWeight.Bold)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .background(CafeGold)
+                                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "طاولة ${call.tableNumber}",
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.ExtraBold,
+                                                            color = Color(0xFF1A1000)
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = timeFormatted,
+                                                        fontSize = 11.sp,
+                                                        color = CafeTextSecondary
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    text = typeTitle,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = CafeTextPrimary
+                                                )
+                                                if (call.customerName.isNotBlank()) {
+                                                    Text(
+                                                        text = "الزبون: ${call.customerName}",
+                                                        fontSize = 11.sp,
+                                                        color = CafeTextSecondary
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Button(
+                                                onClick = { viewModel.resolveWaiterCall(call.id) },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = Color(0xFF10B981),
+                                                    contentColor = Color(0xFF032117)
+                                                ),
+                                                shape = RoundedCornerShape(10.dp),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                                modifier = Modifier.testTag("resolve_waiter_call_${call.id}")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CheckCircle,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("تلبية", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                                            }
                                         }
-                                        Text(accumulatedFeesDisplay, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = CafeGold)
                                     }
                                 }
-                            }
-
-                            // 3. الحساب الكلي مع النسبة
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF031E22)),
-                                border = BorderStroke(1.dp, OrderStatusPaid.copy(alpha = 0.6f))
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("الحساب الكلي شامل النسبة:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CafeTextPrimary)
-                                        Text(totalRevenueDisplay, fontSize = 15.sp, fontWeight = FontWeight.Black, color = OrderStatusPaid)
-                                    }
-                                }
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("عدد الفواتير المسددة للوردية:", fontSize = 11.sp, color = CafeTextSecondary)
-                                Text("${paidOrders.size} فاتورة", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CafeTextPrimary)
-                            }
-
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            // زر تصفير المبيعات
-                            Button(
-                                onClick = { showResetSalesConfirmDialog = true },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E1906)),
-                                border = BorderStroke(1.dp, CafeGold.copy(alpha = 0.7f)),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, tint = CafeGold, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("تصفير المبيعات", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CafeGold)
                             }
                         }
                     },
                     confirmButton = {
-                        TextButton(onClick = { showRevenueDetailsDialog = false }) {
-                            Text("إغلاق", color = CafeCyanPrimary, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                )
-            }
-
-            // نافذة تأكيد تصفير المبيعات
-            if (showResetSalesConfirmDialog) {
-                AlertDialog(
-                    onDismissRequest = { showResetSalesConfirmDialog = false },
-                    containerColor = CafeSurface,
-                    shape = RoundedCornerShape(20.dp),
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, tint = CafeGold, modifier = Modifier.size(22.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("تصفير المبيعات", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        }
-                    },
-                    text = {
-                        Text(
-                            text = "هل ترغب بتصفير عداد المبيعات لتبدأ من 0 د.ع؟",
-                            color = CafeTextSecondary,
-                            fontSize = 13.sp,
-                            lineHeight = 20.sp
-                        )
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                viewModel.resetSalesCounters()
-                                showResetSalesConfirmDialog = false
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text("نعم، تصفير الآن", color = Color.White, fontWeight = FontWeight.Bold)
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showResetSalesConfirmDialog = false }) {
-                            Text("إلغاء", color = CafeTextSecondary)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (waiterCalls.size > 1) {
+                                TextButton(onClick = { viewModel.resolveAllWaiterCalls() }) {
+                                    Text("تلبية الكل", color = CafeGold, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            TextButton(onClick = { showWaiterCallsDialog = false }) {
+                                Text("إغلاق", color = CafeCyanPrimary, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 )

@@ -66,6 +66,7 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
     var currentCafeteriaId: String = "u_default"
 
     private var ordersListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+    private var serviceCallsListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
     private var ordersScope: CoroutineScope? = null
     private var ordersCafeId: String? = null
     private var cafeStatusListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
@@ -76,6 +77,7 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
     val cafeRemainingFee = kotlinx.coroutines.flow.MutableStateFlow(0.0)
     val isOverDebtLimit = kotlinx.coroutines.flow.MutableStateFlow(false)
     val cafeNotifications = kotlinx.coroutines.flow.MutableStateFlow<List<com.example.data.model.CafeNotificationItem>>(emptyList())
+    val waiterCalls = kotlinx.coroutines.flow.MutableStateFlow<List<com.example.data.model.WaiterCallItem>>(emptyList())
     private val deletedOrderIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     fun loadSystemShutdownPref(cafeId: String): Boolean {
@@ -278,8 +280,11 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
 
         if (isSystemShutdown.value || loadSystemShutdownPref(targetCafeId)) {
             isSystemShutdown.value = true
+            stopServiceCallsListener()
             return
         }
+
+        startServiceCallsListener(targetCafeId)
 
         val parseOrderDoc: (com.google.firebase.firestore.DocumentSnapshot) -> Unit = { doc ->
             scope.launch(Dispatchers.IO) {
@@ -1588,9 +1593,95 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
         } catch (_: Exception) {}
     }
 
+    fun startServiceCallsListener(cafeId: String = currentCafeteriaId) {
+        serviceCallsListenerRegistration?.remove()
+        serviceCallsListenerRegistration = null
+
+        val targetId = cafeId.ifBlank { currentCafeteriaId }
+        if (targetId.isBlank() || targetId == "u_default") return
+        if (isSystemShutdown.value || loadSystemShutdownPref(targetId)) return
+
+        try {
+            serviceCallsListenerRegistration = firestore?.collection("cafeterias")?.document(targetId)
+                ?.collection("service_calls")
+                ?.orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                ?.limit(50)
+                ?.addSnapshotListener { snapshot, error ->
+                    if (error != null || snapshot == null) return@addSnapshotListener
+                    val pendingList = snapshot.documents.mapNotNull { doc ->
+                        val status = (doc.getString("status") ?: "PENDING").uppercase()
+                        if (status != "PENDING") return@mapNotNull null
+                        val tbl = doc.getLong("tableNumber")?.toInt()
+                            ?: doc.getString("tableNumber")?.toIntOrNull()
+                            ?: doc.getDouble("tableNumber")?.toInt()
+                            ?: 1
+                        val type = (doc.getString("type") ?: "WAITER").uppercase()
+                        val customerName = doc.getString("customerName") ?: ""
+                        val ts = doc.getLong("timestamp")
+                            ?: doc.getDouble("timestamp")?.toLong()
+                            ?: System.currentTimeMillis()
+                        com.example.data.model.WaiterCallItem(
+                            id = doc.id,
+                            tableNumber = tbl,
+                            type = type,
+                            status = status,
+                            customerName = customerName,
+                            timestamp = ts
+                        )
+                    }.sortedByDescending { it.timestamp }
+                    waiterCalls.value = pendingList
+                }
+        } catch (_: Exception) {}
+    }
+
+    fun stopServiceCallsListener() {
+        serviceCallsListenerRegistration?.remove()
+        serviceCallsListenerRegistration = null
+    }
+
+    fun resolveWaiterCall(callId: String) {
+        val targetId = currentCafeteriaId
+        waiterCalls.value = waiterCalls.value.filterNot { it.id == callId }
+        if (targetId.isBlank() || targetId == "u_default") return
+        try {
+            firestore?.collection("cafeterias")?.document(targetId)
+                ?.collection("service_calls")?.document(callId)
+                ?.set(
+                    mapOf(
+                        "status" to "RESOLVED",
+                        "resolvedAt" to System.currentTimeMillis()
+                    ),
+                    com.google.firebase.firestore.SetOptions.merge()
+                )
+        } catch (_: Exception) {}
+    }
+
+    fun resolveAllWaiterCalls() {
+        val targetId = currentCafeteriaId
+        val currentCalls = waiterCalls.value
+        waiterCalls.value = emptyList()
+        if (targetId.isBlank() || targetId == "u_default" || currentCalls.isEmpty()) return
+        val fs = firestore ?: return
+        try {
+            val now = System.currentTimeMillis()
+            val batch = fs.batch()
+            currentCalls.forEach { call ->
+                val ref = fs.collection("cafeterias").document(targetId)
+                    .collection("service_calls").document(call.id)
+                batch.set(
+                    ref,
+                    mapOf("status" to "RESOLVED", "resolvedAt" to now),
+                    com.google.firebase.firestore.SetOptions.merge()
+                )
+            }
+            batch.commit()
+        } catch (_: Exception) {}
+    }
+
     fun stopFirestoreOrdersListener() {
         ordersListenerRegistration?.remove()
         ordersListenerRegistration = null
+        stopServiceCallsListener()
     }
 
     fun logout() {
@@ -1598,6 +1689,7 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
         ordersScope = null
         ordersCafeId = null
         isSystemShutdown.value = false
+        waiterCalls.value = emptyList()
         try {
             firebaseAuth.signOut()
         } catch (_: Exception) {}

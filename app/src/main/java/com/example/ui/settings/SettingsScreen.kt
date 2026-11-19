@@ -37,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Email
@@ -52,6 +53,7 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestaurantMenu
 import androidx.compose.material.icons.filled.RoundedCorner
 import androidx.compose.material.icons.filled.Save
@@ -126,6 +128,7 @@ import com.example.ui.theme.CafeSurface
 import com.example.ui.theme.CafeSurfaceVariant
 import com.example.ui.theme.CafeTextPrimary
 import com.example.ui.theme.CafeTextSecondary
+import com.example.ui.theme.OrderStatusPaid
 
 @Composable
 fun SettingsScreen(viewModel: MainViewModel) {
@@ -175,6 +178,9 @@ fun SettingsScreen(viewModel: MainViewModel) {
     // Accordion State - None expanded by default so all options are at the same clean level
     var expandedSection by remember { mutableStateOf<String?>(null) }
     val isSystemShutdown by viewModel.isSystemShutdown.collectAsState()
+    val salesResetTimestamp by viewModel.salesResetTimestamp.collectAsState()
+    val cafeRemainingFee by viewModel.cafeRemainingFee.collectAsState()
+    var showResetSalesConfirmDialog by remember { mutableStateOf(false) }
     var showShutdownConfirmDialog by remember { mutableStateOf(false) }
     var showLogoutConfirmDialog by remember { mutableStateOf(false) }
     var orderToDelete by remember { mutableStateOf<OrderRecord?>(null) }
@@ -927,7 +933,144 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 }
 
                 // ==========================================
-                // 5. أرشيف الفواتير المسددة (سجل دائم ومحمي)
+                // 5. المبيعات المسددة (تفاصيل الوردية والرسوم)
+                // ==========================================
+                item {
+                    val isExpanded = expandedSection == "paid_sales_summary"
+                    val shiftPaidOrders = remember(orders, salesResetTimestamp) {
+                        orders.filter { it.status == OrderStatus.PAID && it.timestamp >= salesResetTimestamp }
+                    }
+                    val paidSubtotalIqd = shiftPaidOrders.filter { it.currency != "$" && it.currency != "USD" }.sumOf { it.subtotal }
+                    val paidSubtotalUsd = shiftPaidOrders.filter { it.currency == "$" || it.currency == "USD" }.sumOf { it.subtotal }
+                    val paidTotalIqd = shiftPaidOrders.filter { it.currency != "$" && it.currency != "USD" }.sumOf { it.totalPrice }
+                    val paidTotalUsd = shiftPaidOrders.filter { it.currency == "$" || it.currency == "USD" }.sumOf { it.totalPrice }
+
+                    val allTimePaidOrders = remember(orders) { orders.filter { it.status == OrderStatus.PAID } }
+                    val allTimeFeesIqd = allTimePaidOrders.filter { it.currency != "$" && it.currency != "USD" }.sumOf { it.serviceFee }
+                    val allTimeFeesUsd = allTimePaidOrders.filter { it.currency == "$" || it.currency == "USD" }.sumOf { it.serviceFee }
+
+                    val netRevenueDisplay = when {
+                        paidSubtotalIqd > 0 && paidSubtotalUsd > 0 ->
+                            "${OrderFeeCalculator.formatPrice(paidSubtotalIqd, "د.ع")} + ${OrderFeeCalculator.formatPrice(paidSubtotalUsd, "$")}"
+                        paidSubtotalUsd > 0 -> OrderFeeCalculator.formatPrice(paidSubtotalUsd, "$")
+                        else -> OrderFeeCalculator.formatPrice(paidSubtotalIqd, "د.ع")
+                    }
+
+                    val accumulatedFeesDisplay = if (cafeRemainingFee > 0.0) {
+                        OrderFeeCalculator.formatPrice(cafeRemainingFee, "د.ع")
+                    } else {
+                        when {
+                            allTimeFeesIqd > 0 && allTimeFeesUsd > 0 ->
+                                "${OrderFeeCalculator.formatPrice(allTimeFeesIqd, "د.ع")} + ${OrderFeeCalculator.formatPrice(allTimeFeesUsd, "$")}"
+                            allTimeFeesUsd > 0 -> OrderFeeCalculator.formatPrice(allTimeFeesUsd, "$")
+                            else -> OrderFeeCalculator.formatPrice(allTimeFeesIqd, "د.ع")
+                        }
+                    }
+
+                    val totalRevenueDisplay = when {
+                        paidTotalIqd > 0 && paidTotalUsd > 0 ->
+                            "${OrderFeeCalculator.formatPrice(paidTotalIqd, "د.ع")} + ${OrderFeeCalculator.formatPrice(paidTotalUsd, "$")}"
+                        paidTotalUsd > 0 -> OrderFeeCalculator.formatPrice(paidTotalUsd, "$")
+                        else -> OrderFeeCalculator.formatPrice(paidTotalIqd, "د.ع")
+                    }
+
+                    SettingsOptionCard(
+                        title = "المبيعات المسددة",
+                        subtitle = "الصافي: $netRevenueDisplay (${shiftPaidOrders.size} فاتورة)",
+                        icon = Icons.Default.AttachMoney,
+                        accentColor = accentColor,
+                        isExpanded = isExpanded,
+                        onHeaderClick = {
+                            expandedSection = if (isExpanded) null else "paid_sales_summary"
+                        }
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = CafeSurfaceVariant),
+                                border = BorderStroke(1.dp, CafeCyanPrimary.copy(alpha = 0.4f))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("المبيعات الصافية (بدون النسبة):", fontSize = 12.sp, color = CafeTextSecondary)
+                                    Text(netRevenueDisplay, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = CafeCyanPrimary)
+                                }
+                            }
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF261D04)),
+                                border = BorderStroke(1.dp, CafeGold.copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Lock, contentDescription = null, tint = CafeGold, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("النسبة المتراكمة (رسوم الخدمة):", fontSize = 12.sp, color = CafeGold, fontWeight = FontWeight.Bold)
+                                    }
+                                    Text(accumulatedFeesDisplay, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = CafeGold)
+                                }
+                            }
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF031E22)),
+                                border = BorderStroke(1.dp, OrderStatusPaid.copy(alpha = 0.6f))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("الحساب الكلي شامل النسبة:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CafeTextPrimary)
+                                    Text(totalRevenueDisplay, fontSize = 15.sp, fontWeight = FontWeight.Black, color = OrderStatusPaid)
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("عدد الفواتير المسددة للوردية:", fontSize = 11.sp, color = CafeTextSecondary)
+                                Text("${shiftPaidOrders.size} فاتورة", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CafeTextPrimary)
+                            }
+
+                            Button(
+                                onClick = { showResetSalesConfirmDialog = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .testTag("settings_reset_sales_btn"),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E1906)),
+                                border = BorderStroke(1.dp, CafeGold.copy(alpha = 0.7f)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = CafeGold, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("تصفير المبيعات", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CafeGold)
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // 6. أرشيف الفواتير المسددة (سجل دائم ومحمي)
                 // ==========================================
                 item {
                     val isExpanded = expandedSection == "paid_invoices_archive"
@@ -1920,6 +2063,48 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 }
             }
         }
+    }
+
+    // DIALOG: Reset Sales Confirmation
+    if (showResetSalesConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetSalesConfirmDialog = false },
+            containerColor = CafeSurface,
+            shape = RoundedCornerShape(20.dp),
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, tint = CafeGold, modifier = Modifier.size(22.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("تصفير المبيعات", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Text(
+                    text = "هل ترغب بتصفير عداد المبيعات لتبدأ من 0 د.ع؟",
+                    color = CafeTextSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.resetSalesCounters()
+                        showResetSalesConfirmDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("confirm_reset_sales_btn")
+                ) {
+                    Text("نعم، تصفير الآن", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetSalesConfirmDialog = false }) {
+                    Text("إلغاء", color = CafeTextSecondary)
+                }
+            }
+        )
     }
 
     // DIALOG: System Shutdown Confirmation

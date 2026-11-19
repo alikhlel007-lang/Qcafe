@@ -849,9 +849,9 @@
         <i class="fa-solid fa-fire"></i>
         <span>العروض</span>
       </button>
-      <button class="btn-service" id="tabGameBtn" onclick="openGameModal()">
-        <i class="fa-solid fa-table-list"></i>
-        <span>تسجيل النقاط</span>
+      <button class="btn-service" id="tabWaiterBtn" onclick="callService('WAITER')">
+        <i class="fa-solid fa-bell-concierge"></i>
+        <span>استدعاء النادل</span>
       </button>
     </div>
 
@@ -2179,25 +2179,50 @@
     }
 
     // 12. Quick Waiter / Bill Service Call
+    let lastServiceCallAt = 0;
     function callService(type) {
+      if (document.getElementById('suspendedModal')?.style.display === 'flex' || document.getElementById('closedModal')?.style.display === 'flex') {
+        showToast('عذراً، الكافتيريا مغلقة حالياً.');
+        return;
+      }
+      const now = Date.now();
+      if (now - lastServiceCallAt < 5000) {
+        showToast('🛎️ تم إرسال ندائك للتو، سيصلك النادل فوراً');
+        return;
+      }
+      lastServiceCallAt = now;
+
+      const numTable = parseInt(tableNumber, 10) || 1;
       const typeLabel = type === 'WAITER' ? 'نداء النادل' : 'طلب الحساب';
       showToast(`⏳ جاري إرسال ${typeLabel}...`);
 
+      const btn = document.getElementById('tabWaiterBtn');
+      if (btn && type === 'WAITER') {
+        btn.classList.add('active');
+        setTimeout(() => btn.classList.remove('active'), 2500);
+      }
+
+      let savedName = '';
+      try {
+        savedName = (localStorage.getItem('cafe_customer_name') || '').trim();
+      } catch (_) {}
+
       if (db && cafeteriaId) {
-        const callId = 'call_' + Date.now();
+        const callId = 'call_' + now + '_' + Math.floor(100 + Math.random() * 900);
         db.collection('cafeterias').doc(cafeteriaId).collection('service_calls').doc(callId).set({
           id: callId,
           cafeteriaId: cafeteriaId,
-          tableNumber: parseInt(tableNumber, 10) || 1,
+          tableNumber: numTable,
+          customerName: savedName,
           type: type,
           status: 'PENDING',
-          timestamp: Date.now()
+          timestamp: now
         }).catch(() => {});
       }
 
       setTimeout(() => {
-        showToast(type === 'WAITER' ? '🛎️ تم استدعاء النادل، سيصلك فوراً' : '🧾 تم إرسال طلب الحساب للكاشير');
-      }, 300);
+        showToast(type === 'WAITER' ? `🛎️ تم استدعاء النادل لطاولة ${numTable}، سيصلك فوراً` : `🧾 تم إرسال طلب الحساب لطاولة ${numTable}`);
+      }, 250);
     }
 
     // 12. Card Games Score Sheet Tracker

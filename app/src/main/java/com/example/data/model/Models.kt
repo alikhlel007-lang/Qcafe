@@ -86,3 +86,12 @@ data class CafeNotificationItem(
     val isUrgent: Boolean = false,
     val isRead: Boolean = false
 )
+
+data class WaiterCallItem(
+    val id: String,
+    val tableNumber: Int,
+    val type: String = "WAITER", // WAITER, BILL
+    val status: String = "PENDING", // PENDING, RESOLVED
+    val customerName: String = "",
+    val timestamp: Long = System.currentTimeMillis()
+)

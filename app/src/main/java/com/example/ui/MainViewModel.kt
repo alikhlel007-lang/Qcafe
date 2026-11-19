@@ -145,7 +145,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val cafeRemainingFee: StateFlow<Double> = repository.cafeRemainingFee.asStateFlow()
     val isOverDebtLimit: StateFlow<Boolean> = repository.isOverDebtLimit.asStateFlow()
     val cafeNotifications: StateFlow<List<com.example.data.model.CafeNotificationItem>> = repository.cafeNotifications.asStateFlow()
+    val waiterCalls: StateFlow<List<com.example.data.model.WaiterCallItem>> = repository.waiterCalls.asStateFlow()
     val salesResetTimestamp: StateFlow<Long> = repository.salesResetTimestamp.asStateFlow()
+
+    fun resolveWaiterCall(callId: String) {
+        repository.resolveWaiterCall(callId)
+    }
+
+    fun resolveAllWaiterCalls() {
+        repository.resolveAllWaiterCalls()
+    }
 
     fun setSystemShutdown(shutdown: Boolean) {
         repository.setSystemShutdown(viewModelScope, shutdown)
