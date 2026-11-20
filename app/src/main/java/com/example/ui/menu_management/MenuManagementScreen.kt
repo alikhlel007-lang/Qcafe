@@ -34,7 +34,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -124,7 +123,6 @@ fun MenuManagementScreen(viewModel: MainViewModel) {
 
     var showAddItemDialog by remember { mutableStateOf(false) }
     var showAddCategoryDialog by remember { mutableStateOf(false) }
-    var showAiAssistantDialog by remember { mutableStateOf(false) }
     var itemToConfigure by remember { mutableStateOf<MenuItem?>(null) }
     var categoryToDelete by remember { mutableStateOf<MenuCategory?>(null) }
     var categoryToEdit by remember { mutableStateOf<MenuCategory?>(null) }
@@ -291,42 +289,6 @@ fun MenuManagementScreen(viewModel: MainViewModel) {
                         fontWeight = FontWeight.Bold
                     )
                 }
-            }
-
-            // AI MENU ASSISTANT BUTTON (إدخال المنيو الورقي من صورة، تعديل الأسعار والصور)
-            Button(
-                onClick = {
-                    viewModel.refreshAiQuota()
-                    showAiAssistantDialog = true
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .height(44.dp)
-                    .testTag("open_ai_menu_assistant_btn"),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF06282E),
-                    contentColor = CafeCyanPrimary
-                ),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.2.dp, CafeCyanPrimary.copy(alpha = 0.65f)),
-                contentPadding = PaddingValues(horizontal = 12.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = "مساعد الذكاء الاصطناعي",
-                    tint = CafeGold,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "المساعد الذكي: إدخال منيو من صورة / تعديل أسعار وصور",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = CafeTextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
 
             // ACTIVE CATEGORY ACTIONS HEADER (حذف القسم الحالي / تعديله)
@@ -628,14 +590,6 @@ fun MenuManagementScreen(viewModel: MainViewModel) {
                         Text("إلغاء", color = CafeTextSecondary)
                     }
                 }
-            )
-        }
-
-        if (showAiAssistantDialog) {
-            MenuAiAssistantDialog(
-                viewModel = viewModel,
-                activeCategoryId = activeCatId,
-                onDismiss = { showAiAssistantDialog = false }
             )
         }
     }

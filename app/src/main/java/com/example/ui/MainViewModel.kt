@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.BuildConfig
 import com.example.data.ai.AiActionType
 import com.example.data.ai.AiAssistantUiState
+import com.example.data.ai.AiKeyVerifyState
 import com.example.data.ai.MAX_DAILY_AI_REQUESTS
 import com.example.data.ai.MenuAiAssistant
 import com.example.data.local.CafeDatabase
@@ -110,6 +111,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     repository.startFirestoreOrdersListener(viewModelScope, uid)
                     repository.startCafeteriaStatusListener(uid)
                     repository.loadMenuForCafeteria(uid)
+                    refreshPersonalGeminiKey()
+                    refreshAiQuota()
 
                     // 2. Refresh profile from Firestore in background
                     launch(Dispatchers.IO) {
@@ -572,12 +575,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Scoped Cashier Menu AI Assistant (Free Tier via Firebase AI Logic)
+    // Scoped Cashier Menu AI Assistant (Per-Cafeteria Personal Gemini API Key)
     private val _aiUiState = MutableStateFlow<AiAssistantUiState>(AiAssistantUiState.Idle)
     val aiUiState: StateFlow<AiAssistantUiState> = _aiUiState.asStateFlow()
 
     private val _aiDailyRemaining = MutableStateFlow(MAX_DAILY_AI_REQUESTS)
     val aiDailyRemaining: StateFlow<Int> = _aiDailyRemaining.asStateFlow()
+
+    private val _personalGeminiKey = MutableStateFlow("")
+    val personalGeminiKey: StateFlow<String> = _personalGeminiKey.asStateFlow()
+
+    private val _aiKeyVerifyState = MutableStateFlow<AiKeyVerifyState>(AiKeyVerifyState.Idle)
+    val aiKeyVerifyState: StateFlow<AiKeyVerifyState> = _aiKeyVerifyState.asStateFlow()
+
+    fun refreshPersonalGeminiKey() {
+        val cafeId = _currentUser.value?.id ?: repository.currentCafeteriaId
+        _personalGeminiKey.value = menuAiAssistant.getPersonalApiKey(cafeId)
+    }
+
+    fun saveAndVerifyPersonalGeminiKey(rawKey: String) {
+        val clean = rawKey.trim()
+        val cafeId = _currentUser.value?.id ?: repository.currentCafeteriaId
+        viewModelScope.launch {
+            _aiKeyVerifyState.value = AiKeyVerifyState.Verifying
+            val result = menuAiAssistant.verifyPersonalApiKey(clean)
+            result.fold(
+                onSuccess = { msg ->
+                    menuAiAssistant.savePersonalApiKey(cafeId, clean)
+                    _personalGeminiKey.value = clean
+                    _aiKeyVerifyState.value = AiKeyVerifyState.Success(msg)
+                },
+                onFailure = { err ->
+                    _aiKeyVerifyState.value = AiKeyVerifyState.Error(
+                        err.message ?: "تعذر التحقق من مفتاح Gemini."
+                    )
+                }
+            )
+        }
+    }
+
+    fun clearPersonalGeminiKey() {
+        val cafeId = _currentUser.value?.id ?: repository.currentCafeteriaId
+        menuAiAssistant.clearPersonalApiKey(cafeId)
+        _personalGeminiKey.value = ""
+        _aiKeyVerifyState.value = AiKeyVerifyState.Idle
+    }
+
+    fun resetAiKeyVerifyState() {
+        _aiKeyVerifyState.value = AiKeyVerifyState.Idle
+    }
 
     fun refreshAiQuota() {
         val cafeId = _currentUser.value?.id ?: repository.currentCafeteriaId
@@ -587,6 +633,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun resetAiState() {
         _aiUiState.value = AiAssistantUiState.Idle
         refreshAiQuota()
+        refreshPersonalGeminiKey()
     }
 
     fun analyzeMenuWithAi(command: String, imageUriStrings: List<String>) {
@@ -1001,6 +1048,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         repository.startFirestoreOrdersListener(viewModelScope, user.id)
                         repository.startCafeteriaStatusListener(user.id)
                         repository.loadMenuForCafeteria(user.id)
+                        refreshPersonalGeminiKey()
+                        refreshAiQuota()
 
                         viewModelScope.launch(Dispatchers.IO) {
                             repository.fetchAndSyncCafeProfileFromFirestore(user.id)?.let { remote ->

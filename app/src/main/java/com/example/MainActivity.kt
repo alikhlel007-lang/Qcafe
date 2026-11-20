@@ -32,12 +32,10 @@ import com.example.ui.tables.TablesBarcodeScreen
 import com.example.ui.theme.CafeCyanPrimary
 import com.example.ui.theme.CafeDarkBg
 import com.example.ui.theme.CafeTheme
-import com.example.util.configureAppCheck
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        configureAppCheck(this, intent)
         enableEdgeToEdge()
         setContent {
             val viewModel: MainViewModel = viewModel()

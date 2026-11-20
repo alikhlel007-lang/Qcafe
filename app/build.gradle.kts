@@ -114,14 +114,14 @@ dependencies {
   // Firestore enabled for live cloud sync:
   implementation(libs.firebase.firestore)
 
-  // Firebase Auth & AI Logic + App Check:
+  // Firebase Auth & AI Logic (using per-cafeteria personal Gemini key instead of App Check):
   implementation(libs.firebase.auth)
-  implementation(libs.firebase.ai)
+  // implementation(libs.firebase.ai)
   // implementation(libs.androidx.credentials)
   // implementation(libs.androidx.credentials.play.services)
   // implementation(libs.googleid)
-  implementation(libs.firebase.appcheck.recaptcha)
-  implementation(libs.firebase.appcheck.debug)
+  // implementation(libs.firebase.appcheck.recaptcha)
+  // implementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   // implementation(libs.logging.interceptor)

@@ -70,10 +70,21 @@ import androidx.compose.material3.FilterChipDefaults
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import com.example.data.ai.AiKeyVerifyState
 import com.example.data.model.OrderRecord
 import com.example.data.model.OrderStatus
 import com.example.ui.components.BulkInvoiceDeletionDialog
 import com.example.ui.components.InvoiceDeletionDialog
+import com.example.ui.menu_management.MenuAiAssistantDialog
 import com.example.util.OrderFeeCalculator
 import com.example.util.OrderSummaryHelper
 import com.example.util.ReceiptPrinter
@@ -185,6 +196,12 @@ fun SettingsScreen(viewModel: MainViewModel) {
     var showLogoutConfirmDialog by remember { mutableStateOf(false) }
     var orderToDelete by remember { mutableStateOf<OrderRecord?>(null) }
     var showBulkDeleteDialog by remember { mutableStateOf(false) }
+    var showAiAssistantDialog by remember { mutableStateOf(false) }
+
+    val savedGeminiKey by viewModel.personalGeminiKey.collectAsState()
+    val aiKeyVerifyState by viewModel.aiKeyVerifyState.collectAsState()
+    var editGeminiKey by remember(savedGeminiKey) { mutableStateOf(savedGeminiKey) }
+    var showGeminiKeyPlain by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -709,6 +726,275 @@ fun SettingsScreen(viewModel: MainViewModel) {
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text("فتح إدارة القوائم والأصناف والأسعار", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // 3.5 المساعد الذكي (ربط مفتاح Gemini الشخصي + قراءة المنيو والصور)
+                // ==========================================
+                item {
+                    val isExpanded = expandedSection == "ai_assistant"
+                    val isKeyLinked = savedGeminiKey.isNotBlank()
+                    SettingsOptionCard(
+                        title = "المساعد الذكي للمنيو (Gemini)",
+                        subtitle = if (isKeyLinked) {
+                            "متصل بمفتاح الكافتيريا • إدخال منيو من صور وتعديل الأسعار"
+                        } else {
+                            "ربط مفتاح Gemini المجاني الخاص بالكافتيريا وإدارة المنيو"
+                        },
+                        icon = Icons.Default.AutoAwesome,
+                        accentColor = accentColor,
+                        isExpanded = isExpanded,
+                        onHeaderClick = {
+                            if (!isExpanded) {
+                                viewModel.refreshPersonalGeminiKey()
+                                viewModel.resetAiKeyVerifyState()
+                            }
+                            expandedSection = if (isExpanded) null else "ai_assistant"
+                        }
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            // Connection Status Banner
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isKeyLinked) Color(0xFF0A2E1A) else Color(0xFF241B05),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isKeyLinked) Color(0xFF4CAF50).copy(alpha = 0.6f) else CafeGold.copy(alpha = 0.6f)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Key,
+                                        contentDescription = null,
+                                        tint = if (isKeyLinked) Color(0xFF81C784) else CafeGold,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (isKeyLinked) {
+                                            "الحالة: مربوط بمفتاح Gemini الخاص بالكافتيريا ويعمل مباشرة"
+                                        } else {
+                                            "الحالة: غير مربوط بعد — أضف مفتاحك المجاني من Google AI Studio لتشغيل المساعد"
+                                        },
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isKeyLinked) Color(0xFF81C784) else CafeGold,
+                                        lineHeight = 16.sp
+                                    )
+                                }
+                            }
+
+                            // 3-step easy guide + button to open Google AI Studio
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = CafeInputBg,
+                                border = BorderStroke(1.dp, CafeCardBorder),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "كيف تحصل على مفتاح مجاني في دقيقة؟",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CafeCyanPrimary
+                                    )
+                                    Text(
+                                        text = "1) اضغط الزر أدناه لفتح Google AI Studio وسجّل بحساب Gmail الخاص بالكافتيريا.\n2) اضغط «Create API key» ثم انسخ المفتاح.\n3) ألصق المفتاح هنا واضغط «حفظ واختبار المفتاح».",
+                                        fontSize = 11.sp,
+                                        color = CafeTextSecondary,
+                                        lineHeight = 16.sp
+                                    )
+                                    OutlinedButton(
+                                        onClick = {
+                                            try {
+                                                context.startActivity(
+                                                    Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey"))
+                                                )
+                                            } catch (_: Exception) {
+                                                Toast.makeText(context, "تعذر فتح المتصفح", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(42.dp)
+                                            .testTag("settings_open_ai_studio_btn"),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, CafeCyanPrimary.copy(alpha = 0.5f))
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.OpenInNew,
+                                            contentDescription = null,
+                                            tint = CafeCyanPrimary,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "فتح Google AI Studio لجلب مفتاح مجاني",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = CafeCyanPrimary
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Personal Gemini Key input
+                            OutlinedTextField(
+                                value = editGeminiKey,
+                                onValueChange = {
+                                    editGeminiKey = it
+                                    if (aiKeyVerifyState !is AiKeyVerifyState.Idle) {
+                                        viewModel.resetAiKeyVerifyState()
+                                    }
+                                },
+                                label = {
+                                    Text("مفتاح Gemini الشخصي (API Key)", color = CafeTextSecondary, fontSize = 12.sp)
+                                },
+                                placeholder = {
+                                    Text("AIzaSy...", color = CafeTextSecondary.copy(alpha = 0.5f))
+                                },
+                                singleLine = true,
+                                visualTransformation = if (showGeminiKeyPlain) {
+                                    VisualTransformation.None
+                                } else {
+                                    PasswordVisualTransformation()
+                                },
+                                trailingIcon = {
+                                    IconButton(onClick = { showGeminiKeyPlain = !showGeminiKeyPlain }) {
+                                        Icon(
+                                            imageVector = if (showGeminiKeyPlain) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            contentDescription = if (showGeminiKeyPlain) "إخفاء المفتاح" else "إظهار المفتاح",
+                                            tint = CafeTextSecondary
+                                        )
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("settings_gemini_key_input"),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = CafeInputBg,
+                                    unfocusedContainerColor = CafeInputBg,
+                                    focusedBorderColor = CafeCyanPrimary,
+                                    unfocusedBorderColor = CafeInputBorder,
+                                    focusedTextColor = CafeTextPrimary,
+                                    unfocusedTextColor = CafeTextPrimary
+                                )
+                            )
+
+                            // Save & Verify + Clear buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = { viewModel.saveAndVerifyPersonalGeminiKey(editGeminiKey) },
+                                    enabled = aiKeyVerifyState !is AiKeyVerifyState.Verifying && editGeminiKey.isNotBlank(),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(46.dp)
+                                        .testTag("settings_save_gemini_key_btn"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = accentColor,
+                                        contentColor = Color(0xFF032125)
+                                    )
+                                ) {
+                                    if (aiKeyVerifyState is AiKeyVerifyState.Verifying) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = Color(0xFF032125)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("جاري التحقق...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    } else {
+                                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("حفظ واختبار المفتاح", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                if (isKeyLinked) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            editGeminiKey = ""
+                                            viewModel.clearPersonalGeminiKey()
+                                            Toast.makeText(context, "تم إزالة مفتاح Gemini من الجهاز", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier
+                                            .height(46.dp)
+                                            .testTag("settings_clear_gemini_key_btn"),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFFF6B6B).copy(alpha = 0.6f))
+                                    ) {
+                                        Text("إزالة", fontSize = 12.sp, color = Color(0xFFFF6B6B), fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+
+                            // Verify feedback message
+                            when (val vState = aiKeyVerifyState) {
+                                is AiKeyVerifyState.Success -> {
+                                    Text(
+                                        text = "✓ ${vState.message}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF81C784)
+                                    )
+                                }
+                                is AiKeyVerifyState.Error -> {
+                                    Text(
+                                        text = vState.message,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFFFF8A8A)
+                                    )
+                                }
+                                else -> Unit
+                            }
+
+                            HorizontalDivider(color = CafeCardBorder)
+
+                            // Launch Menu AI Assistant Dialog from Settings
+                            Button(
+                                onClick = {
+                                    viewModel.refreshPersonalGeminiKey()
+                                    viewModel.refreshAiQuota()
+                                    showAiAssistantDialog = true
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .testTag("open_ai_menu_assistant_btn"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF06282E),
+                                    contentColor = CafeCyanPrimary
+                                ),
+                                border = BorderStroke(1.2.dp, CafeCyanPrimary.copy(alpha = 0.7f))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "فتح مساعد المنيو الذكي",
+                                    tint = CafeGold,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "فتح مساعد الكاشير الذكي (صور المنيو / الأسعار)",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CafeTextPrimary
+                                )
                             }
                         }
                     }
@@ -2290,6 +2576,15 @@ fun SettingsScreen(viewModel: MainViewModel) {
                     onError = onError
                 )
             }
+        )
+    }
+
+    if (showAiAssistantDialog) {
+        val defaultCatId = categories.firstOrNull()?.id ?: "cat_burgers"
+        MenuAiAssistantDialog(
+            viewModel = viewModel,
+            activeCategoryId = defaultCatId,
+            onDismiss = { showAiAssistantDialog = false }
         )
     }
 }

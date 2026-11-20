@@ -96,6 +96,7 @@ fun MenuAiAssistantDialog(
     val context = LocalContext.current
     val aiUiState by viewModel.aiUiState.collectAsState()
     val dailyRemaining by viewModel.aiDailyRemaining.collectAsState()
+    val personalGeminiKey by viewModel.personalGeminiKey.collectAsState()
 
     var commandText by remember { mutableStateOf("") }
     var selectedImageUris by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -189,29 +190,41 @@ fun MenuAiAssistantDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Scoped-access security notice
+                // Scoped-access security notice + personal key indicator
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = Color(0xFF042227),
                     border = BorderStroke(1.dp, CafeCyanPrimary.copy(alpha = 0.35f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Security,
-                            contentDescription = null,
-                            tint = CafeCyanPrimary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = null,
+                                tint = CafeCyanPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "صلاحية محدودة للمنيو فقط: يقرأ المنيو الورقي ويعدّل الأسعار والصور دون أي وصول للبيانات السرية أو المالية.",
+                                fontSize = 11.sp,
+                                color = CafeTextSecondary,
+                                lineHeight = 15.sp
+                            )
+                        }
                         Text(
-                            text = "صلاحية محدودة للمنيو فقط: يقرأ المنيو الورقي ويعدّل الأسعار والصور دون أي وصول للبيانات السرية أو المالية.",
+                            text = if (personalGeminiKey.isNotBlank()) {
+                                "✓ مربوط بمفتاح Gemini الخاص بالكافتيريا"
+                            } else {
+                                "تنبيه: يرجى إدخال وحفظ مفتاح Gemini في قسم «المساعد الذكي» بالإعدادات أولاً"
+                            },
                             fontSize = 11.sp,
-                            color = CafeTextSecondary,
-                            lineHeight = 15.sp
+                            fontWeight = FontWeight.Bold,
+                            color = if (personalGeminiKey.isNotBlank()) Color(0xFF66BB6A) else CafeGold
                         )
                     }
                 }
