@@ -54,3 +54,13 @@ enum class DeveloperScreen {
     DASHBOARD,
     INVOICES
 }
+
+data class AdminAppUpdateConfig(
+    val isUpdateActive: Boolean = false,
+    val latestVersionCode: Int = 0,
+    val latestVersionName: String = "",
+    val downloadUrl: String = "",
+    val releaseNotes: String = "",
+    val isForceUpdate: Boolean = false,
+    val updatedAt: Long = 0L
+)

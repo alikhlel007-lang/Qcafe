@@ -2061,6 +2061,38 @@ fun SettingsScreen(viewModel: MainViewModel) {
                         }
                     }
                 }
+
+                // ==========================================
+                // معلومات رقم الإصدار الحالي (للمراجعة والتحديثات)
+                // ==========================================
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        color = CafeSurfaceVariant.copy(alpha = 0.55f),
+                        border = BorderStroke(1.dp, CafeCardBorder)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "إصدار التطبيق المثبت حالياً",
+                                fontSize = 12.sp,
+                                color = CafeTextSecondary
+                            )
+                            Text(
+                                text = "${com.example.BuildConfig.VERSION_NAME} (كود: ${com.example.BuildConfig.VERSION_CODE})",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CafeCyanPrimary
+                            )
+                        }
+                    }
+                }
             }
         }
     }

@@ -67,6 +67,7 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
 
     private var ordersListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
     private var serviceCallsListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+    private var appUpdateListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
     private var ordersScope: CoroutineScope? = null
     private var ordersCafeId: String? = null
     private var cafeStatusListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
@@ -78,6 +79,7 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
     val isOverDebtLimit = kotlinx.coroutines.flow.MutableStateFlow(false)
     val cafeNotifications = kotlinx.coroutines.flow.MutableStateFlow<List<com.example.data.model.CafeNotificationItem>>(emptyList())
     val waiterCalls = kotlinx.coroutines.flow.MutableStateFlow<List<com.example.data.model.WaiterCallItem>>(emptyList())
+    val appUpdateConfig = kotlinx.coroutines.flow.MutableStateFlow<com.example.data.model.AppUpdateConfig?>(null)
     private val deletedOrderIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     fun loadSystemShutdownPref(cafeId: String): Boolean {
@@ -256,6 +258,44 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
         isCafeSuspended.value = false
         isSystemShutdown.value = false
         cafeSuspensionReason.value = ""
+    }
+
+    fun startAppUpdateListener() {
+        if (appUpdateListenerRegistration != null) return
+        try {
+            appUpdateListenerRegistration = firestore?.collection("app_config")?.document("cashier")
+                ?.addSnapshotListener { snapshot, error ->
+                    if (error != null || snapshot == null) return@addSnapshotListener
+                    if (snapshot.exists()) {
+                        val isUpdateActive = snapshot.getBoolean("isUpdateActive") ?: false
+                        val latestCode = snapshot.getLong("latestVersionCode")?.toInt()
+                            ?: snapshot.getDouble("latestVersionCode")?.toInt()
+                            ?: 0
+                        val latestName = snapshot.getString("latestVersionName") ?: ""
+                        val downloadUrl = snapshot.getString("downloadUrl") ?: ""
+                        val releaseNotes = snapshot.getString("releaseNotes") ?: ""
+                        val isForceUpdate = snapshot.getBoolean("isForceUpdate") ?: false
+                        val updatedAt = snapshot.getLong("updatedAt") ?: 0L
+
+                        appUpdateConfig.value = com.example.data.model.AppUpdateConfig(
+                            isUpdateActive = isUpdateActive,
+                            latestVersionCode = latestCode,
+                            latestVersionName = latestName,
+                            downloadUrl = downloadUrl,
+                            releaseNotes = releaseNotes,
+                            isForceUpdate = isForceUpdate,
+                            updatedAt = updatedAt
+                        )
+                    } else {
+                        appUpdateConfig.value = null
+                    }
+                }
+        } catch (_: Exception) {}
+    }
+
+    fun stopAppUpdateListener() {
+        appUpdateListenerRegistration?.remove()
+        appUpdateListenerRegistration = null
     }
 
     fun buildTableQrUrl(baseUrl: String, tableNumber: Int, secToken: String): String {
@@ -770,6 +810,15 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
     }
 
     suspend fun addCategory(nameAr: String, nameEn: String, iconType: String, customImageUri: String? = null) {
+        addCategoryAndReturnId(nameAr, nameEn, iconType, customImageUri)
+    }
+
+    suspend fun addCategoryAndReturnId(
+        nameAr: String,
+        nameEn: String,
+        iconType: String,
+        customImageUri: String? = null
+    ): String {
         val catId = "cat_" + UUID.randomUUID().toString().take(8)
         val compressedImg = com.example.util.ImageCompressor.uriToCompressedBase64(context, customImageUri)
         val entity = CategoryEntity(
@@ -794,6 +843,7 @@ class CafeRepository(private val dao: CafeDao, private val context: android.cont
             firestore?.collection("cafeterias")?.document(currentCafeteriaId)?.collection("categories")?.document(catId)?.set(map)
             notifyMenuUpdated()
         } catch (_: Exception) {}
+        return catId
     }
 
     suspend fun updateCategory(category: MenuCategory) {

@@ -43,6 +43,7 @@ jobs:
           # Auto-increment versionCode on every CI run so updates never conflict
           echo "APP_VERSION_CODE=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
           echo "APP_VERSION_NAME=1.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo "APP_UPDATE_URL=${{ github.server_url }}/${{ github.repository }}/releases/download/v1.0/Q-Cafe-Cashier.apk" >> "$GITHUB_ENV"
 
           if [ -n "$RELEASE_KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
             printf '%s' "$RELEASE_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > my-upload-key.jks

@@ -42,7 +42,9 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -106,6 +108,8 @@ fun DeveloperDashboardScreen(
 
     val statusMsg by viewModel.statusMessage.collectAsState()
     val errorMsg by viewModel.errorMessage.collectAsState()
+    val appUpdateConfig by viewModel.appUpdateConfig.collectAsState()
+    val showUpdateControlDialog by viewModel.showUpdateControlDialog.collectAsState()
 
     var activeTab by remember { mutableStateOf("approved") }
     val pendingCafes = remember(cafeterias) { cafeterias.filter { !it.isUnimportant && (it.isPendingApproval || !it.isApproved) } }
@@ -253,7 +257,77 @@ fun DeveloperDashboardScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // App Update Release Control Card
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.openUpdateControlDialog() }
+                            .testTag("dev_open_update_control_btn"),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF042228)),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.2.dp,
+                            if (appUpdateConfig.isUpdateActive) Color(0xFF4CAF50).copy(alpha = 0.7f) else CafeCyanPrimary.copy(alpha = 0.55f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .background(CafeCyanPrimary.copy(alpha = 0.16f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SystemUpdate,
+                                        contentDescription = "إدارة تحديثات التطبيق",
+                                        tint = CafeCyanPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "إدارة وإطلاق تحديثات تطبيق الكاشير",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = if (appUpdateConfig.isUpdateActive) {
+                                            "مفعّل الآن للنسخة ${appUpdateConfig.latestVersionName} (كود ${appUpdateConfig.latestVersionCode})"
+                                        } else {
+                                            "اضغط هنا لنشر التحديث بعد فحص النسخة على هاتفك"
+                                        },
+                                        fontSize = 11.sp,
+                                        color = if (appUpdateConfig.isUpdateActive) Color(0xFF81C784) else CafeGold
+                                    )
+                                }
+                            }
+                            Surface(
+                                color = CafeCyanPrimary,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = "إدارة",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.Black,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     // Search Box
                     OutlinedTextField(
@@ -756,6 +830,17 @@ fun DeveloperDashboardScreen(
                         Text("إلغاء", color = CafeTextSecondary)
                     }
                 }
+            )
+        }
+
+        if (showUpdateControlDialog) {
+            DeveloperUpdateDialog(
+                currentConfig = appUpdateConfig,
+                onDismiss = { viewModel.closeUpdateControlDialog() },
+                onPublish = { code, name, url, notes, isForce ->
+                    viewModel.publishAppUpdate(code, name, url, notes, isForce)
+                },
+                onDisableUpdate = { viewModel.disableAppUpdate() }
             )
         }
     }

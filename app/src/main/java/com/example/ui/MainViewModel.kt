@@ -3,7 +3,13 @@ package com.example.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.BuildConfig
+import com.example.data.ai.AiActionType
+import com.example.data.ai.AiAssistantUiState
+import com.example.data.ai.MAX_DAILY_AI_REQUESTS
+import com.example.data.ai.MenuAiAssistant
 import com.example.data.local.CafeDatabase
+import com.example.data.model.AppUpdateConfig
 import com.example.data.model.CafeTable
 import com.example.data.model.CartItem
 import com.example.data.model.MenuCategory
@@ -13,14 +19,17 @@ import com.example.data.model.OrderStatus
 import com.example.data.model.UserAccount
 import com.example.data.repository.CafeRepository
 import com.example.data.repository.AuthResult
+import com.example.util.ImageCompressor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class AppScreen {
     SPLASH,
@@ -37,10 +46,12 @@ enum class AppScreen {
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: CafeRepository
+    private val menuAiAssistant = MenuAiAssistant(application)
 
     init {
         val db = CafeDatabase.getDatabase(application, viewModelScope)
         repository = CafeRepository(db.cafeDao(), application)
+        repository.startAppUpdateListener()
         viewModelScope.launch {
             try {
                 val authUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
@@ -147,6 +158,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val cafeNotifications: StateFlow<List<com.example.data.model.CafeNotificationItem>> = repository.cafeNotifications.asStateFlow()
     val waiterCalls: StateFlow<List<com.example.data.model.WaiterCallItem>> = repository.waiterCalls.asStateFlow()
     val salesResetTimestamp: StateFlow<Long> = repository.salesResetTimestamp.asStateFlow()
+
+    private val _dismissedUpdateVersionCode = MutableStateFlow(0)
+    val visibleAppUpdate: StateFlow<AppUpdateConfig?> = combine(
+        repository.appUpdateConfig,
+        _dismissedUpdateVersionCode,
+        _currentScreen
+    ) { config, dismissedCode, screen ->
+        if (config == null || screen == AppScreen.SPLASH) {
+            null
+        } else if (
+            config.isUpdateActive &&
+            config.downloadUrl.isNotBlank() &&
+            config.latestVersionCode > BuildConfig.VERSION_CODE &&
+            (config.isForceUpdate || dismissedCode < config.latestVersionCode)
+        ) {
+            config
+        } else {
+            null
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun dismissOptionalUpdate() {
+        val code = repository.appUpdateConfig.value?.latestVersionCode ?: return
+        _dismissedUpdateVersionCode.value = code
+    }
 
     fun resolveWaiterCall(callId: String) {
         repository.resolveWaiterCall(callId)
@@ -536,6 +572,243 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Scoped Cashier Menu AI Assistant (Free Tier via Firebase AI Logic)
+    private val _aiUiState = MutableStateFlow<AiAssistantUiState>(AiAssistantUiState.Idle)
+    val aiUiState: StateFlow<AiAssistantUiState> = _aiUiState.asStateFlow()
+
+    private val _aiDailyRemaining = MutableStateFlow(MAX_DAILY_AI_REQUESTS)
+    val aiDailyRemaining: StateFlow<Int> = _aiDailyRemaining.asStateFlow()
+
+    fun refreshAiQuota() {
+        val cafeId = _currentUser.value?.id ?: repository.currentCafeteriaId
+        _aiDailyRemaining.value = menuAiAssistant.getRemainingDailyQuota(cafeId)
+    }
+
+    fun resetAiState() {
+        _aiUiState.value = AiAssistantUiState.Idle
+        refreshAiQuota()
+    }
+
+    fun analyzeMenuWithAi(command: String, imageUriString: String?) {
+        val cafeId = _currentUser.value?.id ?: repository.currentCafeteriaId
+        refreshAiQuota()
+        viewModelScope.launch {
+            _aiUiState.value = AiAssistantUiState.Loading
+            val result = menuAiAssistant.analyzeMenuRequest(
+                cafeId = cafeId,
+                userCommand = command,
+                imageUriString = imageUriString,
+                categories = categories.value,
+                menuItems = menuItems.value
+            )
+            refreshAiQuota()
+            result.fold(
+                onSuccess = { (reply, actions) ->
+                    _aiUiState.value = AiAssistantUiState.Success(
+                        replyMessage = reply,
+                        actions = actions,
+                        attachedPhotoUri = imageUriString
+                    )
+                },
+                onFailure = { error ->
+                    _aiUiState.value = AiAssistantUiState.Error(
+                        error.message ?: "تعذر تحليل الطلب عبر الذكاء الاصطناعي."
+                    )
+                }
+            )
+        }
+    }
+
+    fun toggleAiProposedAction(actionId: String) {
+        val current = _aiUiState.value as? AiAssistantUiState.Success ?: return
+        val updated = current.actions.map { action ->
+            if (action.id == actionId) action.copy(isSelected = !action.isSelected) else action
+        }
+        _aiUiState.value = current.copy(actions = updated)
+    }
+
+    fun applySelectedAiActions(
+        fallbackCategoryId: String,
+        onComplete: (Int) -> Unit
+    ) {
+        val currentState = _aiUiState.value as? AiAssistantUiState.Success ?: return
+        val selectedActions = currentState.actions.filter { it.isSelected }
+        if (selectedActions.isEmpty()) return
+
+        viewModelScope.launch {
+            var appliedCount = 0
+            val existingCategories = categories.value.toMutableList()
+            val existingItems = menuItems.value
+            val createdCategoriesByName = mutableMapOf<String, String>()
+
+            val needsUploadedImage = selectedActions.any {
+                it.actionType == AiActionType.ATTACH_UPLOADED_IMAGE || it.attachUploadedPhoto
+            }
+            val compressedPhotoBase64 = if (needsUploadedImage && !currentState.attachedPhotoUri.isNullOrBlank()) {
+                withContext(Dispatchers.IO) {
+                    ImageCompressor.uriToCompressedBase64(getApplication(), currentState.attachedPhotoUri)
+                }
+            } else null
+
+            // 1. Create any newly requested categories first
+            selectedActions.filter { it.actionType == AiActionType.ADD_CATEGORY }.forEach { action ->
+                val catNameAr = action.categoryNameAr?.trim().orEmpty()
+                if (catNameAr.isNotBlank()) {
+                    val existing = existingCategories.find { it.nameAr.trim().equals(catNameAr, ignoreCase = true) }
+                    if (existing != null) {
+                        createdCategoriesByName[catNameAr.lowercase()] = existing.id
+                    } else {
+                        val newCatId = repository.addCategoryAndReturnId(
+                            nameAr = catNameAr,
+                            nameEn = action.categoryNameEn?.trim()?.ifBlank { catNameAr } ?: catNameAr,
+                            iconType = action.iconType?.ifBlank { "meals" } ?: "meals"
+                        )
+                        createdCategoriesByName[catNameAr.lowercase()] = newCatId
+                        appliedCount++
+                    }
+                }
+            }
+
+            // 2. Apply item additions and updates
+            selectedActions.filter { it.actionType != AiActionType.ADD_CATEGORY }.forEach { action ->
+                when (action.actionType) {
+                    AiActionType.ADD_ITEM -> {
+                        val itemName = action.itemNameAr?.trim().orEmpty()
+                        if (itemName.isNotBlank()) {
+                            val targetCatName = action.categoryNameAr?.trim().orEmpty()
+                            val resolvedCatId = when {
+                                !action.categoryId.isNullOrBlank() && existingCategories.any { it.id == action.categoryId } ->
+                                    action.categoryId
+                                targetCatName.isNotBlank() && createdCategoriesByName.containsKey(targetCatName.lowercase()) ->
+                                    createdCategoriesByName.getValue(targetCatName.lowercase())
+                                targetCatName.isNotBlank() -> {
+                                    val found = existingCategories.find { it.nameAr.trim().equals(targetCatName, ignoreCase = true) }
+                                    if (found != null) {
+                                        found.id
+                                    } else {
+                                        val autoCatId = repository.addCategoryAndReturnId(
+                                            nameAr = targetCatName,
+                                            nameEn = action.categoryNameEn?.trim()?.ifBlank { targetCatName } ?: targetCatName,
+                                            iconType = action.iconType?.ifBlank { "meals" } ?: "meals"
+                                        )
+                                        createdCategoriesByName[targetCatName.lowercase()] = autoCatId
+                                        autoCatId
+                                    }
+                                }
+                                else -> fallbackCategoryId
+                            }
+                            repository.addMenuItem(
+                                categoryId = resolvedCatId,
+                                nameAr = itemName,
+                                nameEn = action.itemNameEn?.trim()?.ifBlank { itemName } ?: itemName,
+                                descriptionAr = action.descriptionAr?.trim().orEmpty(),
+                                descriptionEn = action.descriptionAr?.trim().orEmpty(),
+                                price = (action.price ?: 1000.0).coerceAtLeast(0.0),
+                                currency = action.currency?.takeIf { it == "$" || it == "د.ع" } ?: "د.ع",
+                                imageType = action.imageType?.ifBlank { "burger" } ?: "burger",
+                                imageUri = if (action.attachUploadedPhoto) compressedPhotoBase64 else null,
+                                isOffer = action.isOffer ?: false,
+                                offerDiscountPercent = (action.offerDiscountPercent ?: 0).coerceIn(0, 99),
+                                offerTag = action.offerTag?.ifBlank { "عرض خاص" } ?: "عرض خاص"
+                            )
+                            appliedCount++
+                        }
+                    }
+
+                    AiActionType.UPDATE_PRICE -> {
+                        val target = findMatchingMenuItem(existingItems, action.itemId, action.itemNameAr)
+                        val newPrice = action.price
+                        if (target != null && newPrice != null && newPrice >= 0.0) {
+                            repository.updateMenuItem(
+                                target.copy(
+                                    price = newPrice,
+                                    currency = action.currency?.takeIf { it == "$" || it == "د.ع" } ?: target.currency
+                                )
+                            )
+                            appliedCount++
+                        }
+                    }
+
+                    AiActionType.UPDATE_AVAILABILITY -> {
+                        val target = findMatchingMenuItem(existingItems, action.itemId, action.itemNameAr)
+                        val avail = action.isAvailable
+                        if (target != null && avail != null) {
+                            repository.updateMenuItem(target.copy(isAvailable = avail))
+                            appliedCount++
+                        }
+                    }
+
+                    AiActionType.UPDATE_DESCRIPTION -> {
+                        val target = findMatchingMenuItem(existingItems, action.itemId, action.itemNameAr)
+                        if (target != null) {
+                            repository.updateMenuItem(
+                                target.copy(
+                                    nameAr = action.itemNameAr?.trim()?.ifBlank { target.nameAr } ?: target.nameAr,
+                                    nameEn = action.itemNameEn?.trim()?.ifBlank { target.nameEn } ?: target.nameEn,
+                                    descriptionAr = action.descriptionAr?.trim() ?: target.descriptionAr,
+                                    descriptionEn = action.descriptionAr?.trim() ?: target.descriptionEn
+                                )
+                            )
+                            appliedCount++
+                        }
+                    }
+
+                    AiActionType.UPDATE_OFFER -> {
+                        val target = findMatchingMenuItem(existingItems, action.itemId, action.itemNameAr)
+                        if (target != null) {
+                            val enableOffer = action.isOffer ?: true
+                            val disc = (action.offerDiscountPercent ?: target.offerDiscountPercent).coerceIn(0, 99)
+                            val updatedPrice = action.price?.takeIf { it >= 0.0 } ?: target.price
+                            repository.updateMenuItem(
+                                target.copy(
+                                    isOffer = enableOffer,
+                                    offerDiscountPercent = if (enableOffer) disc else 0,
+                                    offerTag = if (enableOffer) (action.offerTag?.ifBlank { "عرض خاص" } ?: target.offerTag) else "",
+                                    price = updatedPrice
+                                )
+                            )
+                            appliedCount++
+                        }
+                    }
+
+                    AiActionType.ATTACH_UPLOADED_IMAGE -> {
+                        val target = findMatchingMenuItem(existingItems, action.itemId, action.itemNameAr)
+                        if (target != null && !compressedPhotoBase64.isNullOrBlank()) {
+                            val updatedItem = when (action.imageTarget?.lowercase()) {
+                                "bg" -> target.copy(bgImageUri = compressedPhotoBase64)
+                                "gallery" -> target.copy(galleryImages = (target.galleryImages + compressedPhotoBase64).distinct())
+                                else -> target.copy(imageUri = compressedPhotoBase64)
+                            }
+                            repository.updateMenuItem(updatedItem)
+                            appliedCount++
+                        }
+                    }
+
+                    AiActionType.ADD_CATEGORY -> Unit
+                }
+            }
+
+            _aiUiState.value = AiAssistantUiState.Idle
+            onComplete(appliedCount)
+        }
+    }
+
+    private fun findMatchingMenuItem(
+        items: List<MenuItem>,
+        itemId: String?,
+        itemNameAr: String?
+    ): MenuItem? {
+        if (!itemId.isNullOrBlank()) {
+            items.find { it.id == itemId }?.let { return it }
+        }
+        val cleanName = itemNameAr?.trim().orEmpty()
+        if (cleanName.isNotBlank()) {
+            items.find { it.nameAr.trim().equals(cleanName, ignoreCase = true) }?.let { return it }
+            items.find { it.nameAr.contains(cleanName, ignoreCase = true) || cleanName.contains(it.nameAr, ignoreCase = true) }?.let { return it }
+        }
+        return null
+    }
+
     // Tables CRUD & Anti-fraud Barcode Regeneration
     fun addTable(number: Int, label: String, capacity: Int) {
         val cafeName = _currentUser.value?.cafeName ?: "CAFE"
@@ -855,5 +1128,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _currentUser.value = null
         _cart.value = emptyList()
         _currentScreen.value = AppScreen.LOGIN
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        repository.stopAppUpdateListener()
     }
 }

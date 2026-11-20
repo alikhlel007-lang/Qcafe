@@ -95,3 +95,13 @@ data class WaiterCallItem(
     val customerName: String = "",
     val timestamp: Long = System.currentTimeMillis()
 )
+
+data class AppUpdateConfig(
+    val isUpdateActive: Boolean = false,
+    val latestVersionCode: Int = 0,
+    val latestVersionName: String = "",
+    val downloadUrl: String = "",
+    val releaseNotes: String = "",
+    val isForceUpdate: Boolean = false,
+    val updatedAt: Long = 0L
+)

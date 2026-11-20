@@ -453,4 +453,62 @@ class DeveloperRepository {
         } catch (_: Exception) {}
         list.sortedByDescending { it.timestamp }
     }
+
+    suspend fun fetchAppUpdateConfig(): AdminAppUpdateConfig = withContext(Dispatchers.IO) {
+        val db = firestore ?: return@withContext AdminAppUpdateConfig()
+        try {
+            val snap = db.collection("app_config").document("cashier").get().awaitTask()
+            if (snap.exists()) {
+                return@withContext AdminAppUpdateConfig(
+                    isUpdateActive = snap.getBoolean("isUpdateActive") ?: false,
+                    latestVersionCode = snap.getLong("latestVersionCode")?.toInt()
+                        ?: snap.getDouble("latestVersionCode")?.toInt()
+                        ?: 0,
+                    latestVersionName = snap.getString("latestVersionName") ?: "",
+                    downloadUrl = snap.getString("downloadUrl") ?: "",
+                    releaseNotes = snap.getString("releaseNotes") ?: "",
+                    isForceUpdate = snap.getBoolean("isForceUpdate") ?: false,
+                    updatedAt = snap.getLong("updatedAt") ?: 0L
+                )
+            }
+        } catch (_: Exception) {}
+        AdminAppUpdateConfig()
+    }
+
+    suspend fun publishAppUpdateConfig(config: AdminAppUpdateConfig): Result<Unit> = withContext(Dispatchers.IO) {
+        val db = firestore ?: return@withContext Result.failure(Exception("قاعدة البيانات غير متصلة"))
+        try {
+            val map = hashMapOf<String, Any>(
+                "isUpdateActive" to true,
+                "latestVersionCode" to config.latestVersionCode,
+                "latestVersionName" to config.latestVersionName,
+                "downloadUrl" to config.downloadUrl,
+                "releaseNotes" to config.releaseNotes,
+                "isForceUpdate" to config.isForceUpdate,
+                "updatedAt" to System.currentTimeMillis()
+            )
+            db.collection("app_config").document("cashier").set(map, SetOptions.merge()).awaitTask()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun disableAppUpdatePrompt(): Result<Unit> = withContext(Dispatchers.IO) {
+        val db = firestore ?: return@withContext Result.failure(Exception("قاعدة البيانات غير متصلة"))
+        try {
+            db.collection("app_config").document("cashier")
+                .set(
+                    mapOf(
+                        "isUpdateActive" to false,
+                        "updatedAt" to System.currentTimeMillis()
+                    ),
+                    SetOptions.merge()
+                )
+                .awaitTask()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

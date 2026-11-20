@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<resources>
+    <string name="firestore_database_id" translatable="false">ai-studio-android-menuflow-61f17424-11bd-4d60-89a8-180dd22da718</string>
+    <string name="recaptcha_site_key" translatable="false">6LeRlSkuAAAAABIEf3myFug1o3bqrIRDAx58--dX</string>
+</resources>

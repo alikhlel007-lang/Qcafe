@@ -102,6 +102,12 @@ class DeveloperViewModel(application: Application) : AndroidViewModel(applicatio
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private val _appUpdateConfig = MutableStateFlow(AdminAppUpdateConfig())
+    val appUpdateConfig: StateFlow<AdminAppUpdateConfig> = _appUpdateConfig.asStateFlow()
+
+    private val _showUpdateControlDialog = MutableStateFlow(false)
+    val showUpdateControlDialog: StateFlow<Boolean> = _showUpdateControlDialog.asStateFlow()
+
     init {
         if (_isLoggedIn.value) {
             refreshDashboard()
@@ -150,6 +156,7 @@ class DeveloperViewModel(application: Application) : AndroidViewModel(applicatio
             try {
                 val list = repository.fetchAllCafeterias()
                 _allCafeterias.value = list
+                _appUpdateConfig.value = repository.fetchAppUpdateConfig()
             } catch (e: Exception) {
                 _errorMessage.value = "تعذر تحميل بيانات الكافتيريات: ${e.localizedMessage}"
             } finally {
@@ -350,6 +357,62 @@ class DeveloperViewModel(application: Application) : AndroidViewModel(applicatio
                 refreshDashboard()
             } else {
                 _errorMessage.value = "تعذر تعديل تصنيف الكافتيريا: ${res.exceptionOrNull()?.localizedMessage}"
+            }
+        }
+    }
+
+    fun openUpdateControlDialog() {
+        _showUpdateControlDialog.value = true
+        viewModelScope.launch {
+            _appUpdateConfig.value = repository.fetchAppUpdateConfig()
+        }
+    }
+
+    fun closeUpdateControlDialog() {
+        _showUpdateControlDialog.value = false
+    }
+
+    fun publishAppUpdate(
+        versionCode: Int,
+        versionName: String,
+        downloadUrl: String,
+        releaseNotes: String,
+        isForce: Boolean
+    ) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            val cfg = AdminAppUpdateConfig(
+                isUpdateActive = true,
+                latestVersionCode = versionCode,
+                latestVersionName = versionName,
+                downloadUrl = downloadUrl,
+                releaseNotes = releaseNotes,
+                isForceUpdate = isForce,
+                updatedAt = System.currentTimeMillis()
+            )
+            val res = repository.publishAppUpdateConfig(cfg)
+            _isLoading.value = false
+            if (res.isSuccess) {
+                _appUpdateConfig.value = cfg
+                _showUpdateControlDialog.value = false
+                _statusMessage.value = "تم إطلاق إشعار التحديث ($versionName) لأصحاب الكافتيريات بنجاح"
+            } else {
+                _errorMessage.value = "تعذر نشر التحديث: ${res.exceptionOrNull()?.localizedMessage}"
+            }
+        }
+    }
+
+    fun disableAppUpdate() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            val res = repository.disableAppUpdatePrompt()
+            _isLoading.value = false
+            if (res.isSuccess) {
+                _appUpdateConfig.value = _appUpdateConfig.value.copy(isUpdateActive = false)
+                _showUpdateControlDialog.value = false
+                _statusMessage.value = "تم إيقاف إشعار التحديث مؤقتاً"
+            } else {
+                _errorMessage.value = "تعذر إيقاف الإشعار: ${res.exceptionOrNull()?.localizedMessage}"
             }
         }
     }

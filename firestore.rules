@@ -43,6 +43,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /app_config/{configId} {
+      allow read, write: if true;
+    }
+
     match /{document=**} {
       allow read, write: if true;
     }

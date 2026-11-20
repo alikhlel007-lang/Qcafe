@@ -18,6 +18,8 @@ android {
     targetSdk = 36
     versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 1
     versionName = System.getenv("APP_VERSION_NAME") ?: "1.0"
+    val defaultUpdateUrl = (System.getenv("APP_UPDATE_URL") ?: "").replace("\"", "\\\"")
+    buildConfigField("String", "DEFAULT_UPDATE_URL", "\"$defaultUpdateUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -112,13 +114,14 @@ dependencies {
   // Firestore enabled for live cloud sync:
   implementation(libs.firebase.firestore)
 
-  // Firebase Auth for email verification and real credentials:
+  // Firebase Auth & AI Logic + App Check:
   implementation(libs.firebase.auth)
+  implementation(libs.firebase.ai)
   // implementation(libs.androidx.credentials)
   // implementation(libs.androidx.credentials.play.services)
   // implementation(libs.googleid)
-  // implementation(libs.firebase.appcheck.recaptcha)
-  // implementation(libs.firebase.appcheck.debug)
+  implementation(libs.firebase.appcheck.recaptcha)
+  implementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   // implementation(libs.logging.interceptor)
