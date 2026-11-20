@@ -11,6 +11,7 @@ import com.example.data.model.MenuItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
@@ -24,7 +25,7 @@ import java.util.Locale
 import java.util.UUID
 
 private const val TAG = "MenuAiAssistant"
-private const val PREFERRED_MODEL_NAME = "gemini-3.8-flash"
+private const val PREFERRED_MODEL_NAME = "gemini-2.5-flash"
 private const val AI_TIMEOUT_MS = 60_000L
 private const val GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 private const val VERTEX_EXPRESS_BASE = "https://aiplatform.googleapis.com/v1/publishers/google"
@@ -304,12 +305,39 @@ class MenuAiAssistant(private val context: Context) {
         }
     }
 
-    private fun executeGenerateContentWithModelFallback(apiKey: String, requestBody: String): String {
+    private suspend fun executeGenerateContentWithModelFallback(apiKey: String, requestBody: String): String {
         val firstAttempt = postGenerateContent(apiKey, resolvedBackend, resolvedModelName, requestBody)
         if (firstAttempt.isSuccess) {
             return firstAttempt.getOrThrow()
         }
         val firstErr = firstAttempt.exceptionOrNull()
+        val statusCode = (firstErr as? HttpApiException)?.code
+
+        // If transient overload (503/502/504/429) or model not found (404), try alternative Flash models
+        if (statusCode in listOf(404, 429, 502, 503, 504)) {
+            val fallbackModels = listOf(
+                "gemini-2.5-flash-lite",
+                "gemini-2.5-flash",
+                "gemini-2.0-flash",
+                "gemini-2.0-flash-001"
+            ).filter { !it.equals(resolvedModelName, ignoreCase = true) }
+
+            for (candidate in fallbackModels) {
+                delay(450)
+                val retry = postGenerateContent(apiKey, resolvedBackend, candidate, requestBody)
+                if (retry.isSuccess) {
+                    return retry.getOrThrow()
+                }
+            }
+
+            // Final brief retry on original model in case spike cleared
+            delay(800)
+            val finalRetry = postGenerateContent(apiKey, resolvedBackend, resolvedModelName, requestBody)
+            if (finalRetry.isSuccess) {
+                return finalRetry.getOrThrow()
+            }
+        }
+
         if (firstErr is HttpApiException && (firstErr.code == 404 || firstErr.code == 400 || firstErr.code == 401 || firstErr.code == 403)) {
             if (resolvedBackend == BACKEND_GEMINI_DEV) {
                 val discoveredDev = runCatching { fetchBestFlashModel(apiKey) }.getOrNull()
@@ -359,9 +387,9 @@ class MenuAiAssistant(private val context: Context) {
 
         val candidates = listOf(
             "gemini-2.5-flash",
-            "gemini-3.8-flash",
             "gemini-2.5-flash-lite",
-            "gemini-2.0-flash"
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-001"
         )
         var lastError: Throwable? = null
         for (model in candidates) {
@@ -477,6 +505,8 @@ class MenuAiAssistant(private val context: Context) {
                 "تم تجاوز حد الطلبات المجاني المؤقت لمفتاحك. انتظر دقيقة ثم حاول مجدداً."
             code == 404 ->
                 "نموذج الذكاء الاصطناعي غير متاح حالياً لهذا المفتاح ($apiMsg)."
+            code == 502 || code == 503 || code == 504 ->
+                "خادم Google مزدحم مؤقتاً في هذه اللحظة (ضغط طلبات مرتفع). انتظر بضع ثوانٍ واضغط المحاولة مرة أخرى."
             else ->
                 "تعذر الاتصال بخدمة Gemini (رمز $code): ${apiMsg.ifBlank { "تحقق من الإنترنت" }}"
         }
