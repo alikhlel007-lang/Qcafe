@@ -27,6 +27,9 @@ private const val TAG = "MenuAiAssistant"
 private const val PREFERRED_MODEL_NAME = "gemini-3.8-flash"
 private const val AI_TIMEOUT_MS = 60_000L
 private const val GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+private const val VERTEX_EXPRESS_BASE = "https://aiplatform.googleapis.com/v1/publishers/google"
+private const val BACKEND_GEMINI_DEV = "gemini_dev"
+private const val BACKEND_VERTEX_EXPRESS = "vertex_express"
 private const val KEY_PREFS_NAME = "cafe_ai_settings_prefs"
 private const val QUOTA_PREFS_NAME = "cafe_ai_quota_prefs"
 const val MAX_DAILY_AI_REQUESTS = 50
@@ -90,12 +93,29 @@ class MenuAiAssistant(private val context: Context) {
     @Volatile
     private var resolvedModelName: String = PREFERRED_MODEL_NAME
 
+    @Volatile
+    private var resolvedBackend: String = BACKEND_GEMINI_DEV
+
     fun getPersonalApiKey(cafeId: String): String {
         val prefs = context.getSharedPreferences(KEY_PREFS_NAME, Context.MODE_PRIVATE)
         val scopedKey = cafeId.ifBlank { "default" }
         val perCafe = prefs.getString("gemini_key_$scopedKey", "")?.trim().orEmpty()
         if (perCafe.isNotBlank()) return perCafe
         return prefs.getString("gemini_key_global_fallback", "")?.trim().orEmpty()
+    }
+
+    private fun loadSavedBackendAndModel(cafeId: String, apiKey: String) {
+        val prefs = context.getSharedPreferences(KEY_PREFS_NAME, Context.MODE_PRIVATE)
+        val scopedKey = cafeId.ifBlank { "default" }
+        val defaultBackend = if (apiKey.startsWith("AQ.")) BACKEND_VERTEX_EXPRESS else BACKEND_GEMINI_DEV
+        val savedBackend = prefs.getString("gemini_backend_$scopedKey", "")?.trim().orEmpty()
+            .ifBlank { prefs.getString("gemini_backend_global", "")?.trim().orEmpty() }
+            .ifBlank { defaultBackend }
+        val savedModel = prefs.getString("gemini_model_$scopedKey", "")?.trim().orEmpty()
+            .ifBlank { prefs.getString("gemini_model_global", "")?.trim().orEmpty() }
+            .ifBlank { PREFERRED_MODEL_NAME }
+        resolvedBackend = savedBackend
+        resolvedModelName = savedModel
     }
 
     fun savePersonalApiKey(cafeId: String, apiKey: String) {
@@ -105,8 +125,11 @@ class MenuAiAssistant(private val context: Context) {
         prefs.edit()
             .putString("gemini_key_$scopedKey", clean)
             .putString("gemini_key_global_fallback", clean)
+            .putString("gemini_backend_$scopedKey", resolvedBackend)
+            .putString("gemini_backend_global", resolvedBackend)
+            .putString("gemini_model_$scopedKey", resolvedModelName)
+            .putString("gemini_model_global", resolvedModelName)
             .apply()
-        resolvedModelName = PREFERRED_MODEL_NAME
     }
 
     fun clearPersonalApiKey(cafeId: String) {
@@ -115,22 +138,63 @@ class MenuAiAssistant(private val context: Context) {
         prefs.edit()
             .remove("gemini_key_$scopedKey")
             .remove("gemini_key_global_fallback")
+            .remove("gemini_backend_$scopedKey")
+            .remove("gemini_backend_global")
+            .remove("gemini_model_$scopedKey")
+            .remove("gemini_model_global")
             .apply()
+        resolvedBackend = BACKEND_GEMINI_DEV
+        resolvedModelName = PREFERRED_MODEL_NAME
     }
 
     suspend fun verifyPersonalApiKey(apiKey: String): Result<String> {
         val cleanKey = apiKey.trim()
-        if (cleanKey.length < 20 || !cleanKey.startsWith("AIza")) {
+        if (cleanKey.length < 20 || cleanKey.any { it.isWhitespace() }) {
             return Result.failure(
-                IllegalArgumentException("صيغة المفتاح غير صحيحة. مفتاح Google Gemini يبدأ عادةً بـ AIza...")
+                IllegalArgumentException("صيغة المفتاح غير صحيحة. تأكد من لصق المفتاح كاملاً بدون مسافات (يبدأ عادةً بـ AIza أو AQ).")
             )
         }
         return try {
-            withTimeout(20_000L) {
+            withTimeout(25_000L) {
                 withContext(Dispatchers.IO) {
-                    val discoveredModel = fetchBestFlashModel(cleanKey)
-                    resolvedModelName = discoveredModel
-                    Result.success("تم التحقق وربط مفتاح Gemini بنجاح ($discoveredModel)")
+                    val tryVertexFirst = cleanKey.startsWith("AQ.")
+                    if (tryVertexFirst) {
+                        val vertexResult = probeVertexExpressModels(cleanKey)
+                        if (vertexResult.isSuccess) {
+                            val model = vertexResult.getOrThrow()
+                            resolvedBackend = BACKEND_VERTEX_EXPRESS
+                            resolvedModelName = model
+                            return@withContext Result.success("تم التحقق وربط مفتاح Google Gemini بنجاح ($model)")
+                        }
+                        val devResult = runCatching { fetchBestFlashModel(cleanKey) }
+                        if (devResult.isSuccess) {
+                            val model = devResult.getOrThrow()
+                            resolvedBackend = BACKEND_GEMINI_DEV
+                            resolvedModelName = model
+                            return@withContext Result.success("تم التحقق وربط مفتاح Gemini بنجاح ($model)")
+                        }
+                        throw (vertexResult.exceptionOrNull()
+                            ?: devResult.exceptionOrNull()
+                            ?: IllegalStateException("تعذر التحقق من المفتاح."))
+                    } else {
+                        val devResult = runCatching { fetchBestFlashModel(cleanKey) }
+                        if (devResult.isSuccess) {
+                            val model = devResult.getOrThrow()
+                            resolvedBackend = BACKEND_GEMINI_DEV
+                            resolvedModelName = model
+                            return@withContext Result.success("تم التحقق وربط مفتاح Gemini بنجاح ($model)")
+                        }
+                        val vertexResult = probeVertexExpressModels(cleanKey)
+                        if (vertexResult.isSuccess) {
+                            val model = vertexResult.getOrThrow()
+                            resolvedBackend = BACKEND_VERTEX_EXPRESS
+                            resolvedModelName = model
+                            return@withContext Result.success("تم التحقق وربط مفتاح Google Gemini بنجاح ($model)")
+                        }
+                        throw (devResult.exceptionOrNull()
+                            ?: vertexResult.exceptionOrNull()
+                            ?: IllegalStateException("تعذر التحقق من المفتاح."))
+                    }
                 }
             }
         } catch (e: TimeoutCancellationException) {
@@ -177,6 +241,7 @@ class MenuAiAssistant(private val context: Context) {
                 IllegalStateException("يرجى إدخال وحفظ مفتاح Gemini الشخصي الخاص بالكافتيريا أولاً في الإعدادات أعلاه لتشغيل المساعد الذكي.")
             )
         }
+        loadSavedBackendAndModel(cafeId, apiKey)
 
         if (getRemainingDailyQuota(cafeId) <= 0) {
             return Result.failure(
@@ -240,29 +305,100 @@ class MenuAiAssistant(private val context: Context) {
     }
 
     private fun executeGenerateContentWithModelFallback(apiKey: String, requestBody: String): String {
-        val firstAttempt = postGenerateContent(apiKey, resolvedModelName, requestBody)
+        val firstAttempt = postGenerateContent(apiKey, resolvedBackend, resolvedModelName, requestBody)
         if (firstAttempt.isSuccess) {
             return firstAttempt.getOrThrow()
         }
         val firstErr = firstAttempt.exceptionOrNull()
-        if (firstErr is HttpApiException && firstErr.code == 404) {
-            val discoveredModel = fetchBestFlashModel(apiKey)
-            resolvedModelName = discoveredModel
-            val secondAttempt = postGenerateContent(apiKey, discoveredModel, requestBody)
-            return secondAttempt.getOrThrow()
+        if (firstErr is HttpApiException && (firstErr.code == 404 || firstErr.code == 400 || firstErr.code == 401 || firstErr.code == 403)) {
+            if (resolvedBackend == BACKEND_GEMINI_DEV) {
+                val discoveredDev = runCatching { fetchBestFlashModel(apiKey) }.getOrNull()
+                if (discoveredDev != null) {
+                    resolvedModelName = discoveredDev
+                    val retryDev = postGenerateContent(apiKey, BACKEND_GEMINI_DEV, discoveredDev, requestBody)
+                    if (retryDev.isSuccess) return retryDev.getOrThrow()
+                }
+                val vertexModel = probeVertexExpressModels(apiKey).getOrNull()
+                if (vertexModel != null) {
+                    resolvedBackend = BACKEND_VERTEX_EXPRESS
+                    resolvedModelName = vertexModel
+                    val retryVertex = postGenerateContent(apiKey, BACKEND_VERTEX_EXPRESS, vertexModel, requestBody)
+                    if (retryVertex.isSuccess) return retryVertex.getOrThrow()
+                }
+            } else {
+                val vertexModel = probeVertexExpressModels(apiKey).getOrNull()
+                if (vertexModel != null) {
+                    resolvedModelName = vertexModel
+                    val retryVertex = postGenerateContent(apiKey, BACKEND_VERTEX_EXPRESS, vertexModel, requestBody)
+                    if (retryVertex.isSuccess) return retryVertex.getOrThrow()
+                }
+                val discoveredDev = runCatching { fetchBestFlashModel(apiKey) }.getOrNull()
+                if (discoveredDev != null) {
+                    resolvedBackend = BACKEND_GEMINI_DEV
+                    resolvedModelName = discoveredDev
+                    val retryDev = postGenerateContent(apiKey, BACKEND_GEMINI_DEV, discoveredDev, requestBody)
+                    if (retryDev.isSuccess) return retryDev.getOrThrow()
+                }
+            }
         }
         throw firstErr ?: IllegalStateException("فشل الاتصال بـ Gemini")
     }
 
-    private fun postGenerateContent(apiKey: String, modelName: String, requestBody: String): Result<String> {
-        val url = URL("$GEMINI_API_BASE/models/$modelName:generateContent")
+    private fun probeVertexExpressModels(apiKey: String): Result<String> {
+        val testPayload = JSONObject().apply {
+            put(
+                "contents",
+                JSONArray().put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("parts", JSONArray().put(JSONObject().put("text", "OK")))
+                )
+            )
+            put("generationConfig", JSONObject().put("maxOutputTokens", 4))
+        }.toString()
+
+        val candidates = listOf(
+            "gemini-2.5-flash",
+            "gemini-3.8-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.0-flash"
+        )
+        var lastError: Throwable? = null
+        for (model in candidates) {
+            val attempt = postGenerateContent(apiKey, BACKEND_VERTEX_EXPRESS, model, testPayload)
+            if (attempt.isSuccess) {
+                return Result.success(model)
+            }
+            val err = attempt.exceptionOrNull()
+            lastError = err
+            if (err is HttpApiException && err.code in listOf(401, 403)) {
+                break
+            }
+        }
+        return Result.failure(lastError ?: IllegalStateException("تعذر التحقق من المفتاح عبر Vertex AI Express"))
+    }
+
+    private fun postGenerateContent(
+        apiKey: String,
+        backend: String,
+        modelName: String,
+        requestBody: String
+    ): Result<String> {
+        val endpoint = if (backend == BACKEND_VERTEX_EXPRESS) {
+            "$VERTEX_EXPRESS_BASE/models/$modelName:generateContent?key=${java.net.URLEncoder.encode(apiKey, "UTF-8")}"
+        } else {
+            "$GEMINI_API_BASE/models/$modelName:generateContent"
+        }
+        val url = URL(endpoint)
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 20_000
             readTimeout = 55_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            setRequestProperty("x-goog-api-key", apiKey)
+            if (backend == BACKEND_GEMINI_DEV) {
+                setRequestProperty("x-goog-api-key", apiKey)
+            }
         }
         return try {
             conn.outputStream.use { os ->
@@ -334,9 +470,9 @@ class MenuAiAssistant(private val context: Context) {
         }
         return when {
             code == 400 && (apiMsg.contains("API_KEY_INVALID", ignoreCase = true) || apiMsg.contains("API key", ignoreCase = true)) ->
-                "مفتاح Gemini المدخل غير صالح. تأكد من نسخه كاملاً من Google AI Studio."
+                "مفتاح Gemini المدخل غير صالح. تأكد من نسخه كاملاً من Google AI Studio أو Vertex AI Studio."
             code == 401 || code == 403 ->
-                "مفتاح Gemini مرفوض أو غير مفعّل. أنشئ مفتاحاً جديداً من Google AI Studio وألصقه في الإعدادات."
+                "مفتاح Gemini مرفوض أو غير مفعّل (${apiMsg.ifBlank { "رمز $code" }})."
             code == 429 ->
                 "تم تجاوز حد الطلبات المجاني المؤقت لمفتاحك. انتظر دقيقة ثم حاول مجدداً."
             code == 404 ->

@@ -861,7 +861,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
                                     Text("مفتاح Gemini الشخصي (API Key)", color = CafeTextSecondary, fontSize = 12.sp)
                                 },
                                 placeholder = {
-                                    Text("AIzaSy...", color = CafeTextSecondary.copy(alpha = 0.5f))
+                                    Text("AIzaSy... أو AQ....", color = CafeTextSecondary.copy(alpha = 0.5f))
                                 },
                                 singleLine = true,
                                 visualTransformation = if (showGeminiKeyPlain) {
