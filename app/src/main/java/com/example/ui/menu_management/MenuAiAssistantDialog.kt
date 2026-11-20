@@ -23,7 +23,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -70,6 +72,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.ai.AiActionType
 import com.example.data.ai.AiAssistantUiState
+import com.example.data.ai.MAX_AI_IMAGES
 import com.example.data.ai.MAX_DAILY_AI_REQUESTS
 import com.example.data.ai.ProposedMenuAction
 import com.example.ui.MainViewModel
@@ -95,13 +98,22 @@ fun MenuAiAssistantDialog(
     val dailyRemaining by viewModel.aiDailyRemaining.collectAsState()
 
     var commandText by remember { mutableStateOf("") }
-    var selectedImageUri by remember { mutableStateOf<String?>(null) }
+    var selectedImageUris by remember { mutableStateOf<List<String>>(emptyList()) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
-            selectedImageUri = uri.toString()
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = MAX_AI_IMAGES)
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            val incoming = uris.map { it.toString() }
+            val merged = (selectedImageUris + incoming).distinct()
+            if (merged.size > MAX_AI_IMAGES) {
+                Toast.makeText(
+                    context,
+                    "الحد الأقصى للطلب الواحد هو $MAX_AI_IMAGES صور",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            selectedImageUris = merged.take(MAX_AI_IMAGES)
         }
     }
 
@@ -206,9 +218,9 @@ fun MenuAiAssistantDialog(
 
                 // Quick task presets
                 val presets = listOf(
-                    "إدخال منيو ورقي" to "اقرأ جميع الأقسام والأصناف والأسعار من صورة المنيو الورقي وجهزها للإضافة",
+                    "إدخال منيو ورقي" to "اقرأ جميع الأقسام والأصناف والأسعار من صور المنيو الورقي المرفقة وجهزها للإضافة",
                     "تحديث أسعار" to "عدّل أسعار الأصناف التالية: ",
-                    "ربط صورة بصنف" to "اربط هذه الصورة المرفقة بصنف: ",
+                    "ربط صور بأصناف" to "طابق الصور المرفقة مع الأصناف المناسبة لها في المنيو واربطها بها",
                     "تحسين الوصف" to "اكتب وصفاً عربياً قصيراً وجذاباً للأصناف التي بدون وصف"
                 )
                 FlowRow(
@@ -235,62 +247,121 @@ fun MenuAiAssistantDialog(
                     }
                 }
 
-                // Image picker row (PickVisualMedia - zero storage permission)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
+                // Multi-image picker (PickMultipleVisualMedia - zero storage permission)
+                OutlinedButton(
+                    onClick = {
+                        if (selectedImageUris.size >= MAX_AI_IMAGES) {
+                            Toast.makeText(
+                                context,
+                                "وصلت للحد الأقصى ($MAX_AI_IMAGES صور). احذف صورة أولاً لإضافة غيرها.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
                             imagePickerLauncher.launch(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("ai_pick_image_btn"),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, CafeCyanPrimary.copy(alpha = 0.5f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AddPhotoAlternate,
+                        contentDescription = "إرفاق صور",
+                        tint = CafeCyanPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (selectedImageUris.isEmpty()) {
+                            "إرفاق صور منيو أو أصناف (حتى $MAX_AI_IMAGES صور)"
+                        } else {
+                            "إضافة صور أخرى (${selectedImageUris.size}/$MAX_AI_IMAGES)"
                         },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("ai_pick_image_btn"),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, CafeCyanPrimary.copy(alpha = 0.5f))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AddPhotoAlternate,
-                            contentDescription = "إرفاق صورة",
-                            tint = CafeCyanPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (selectedImageUri != null) "تغيير الصورة المرفقة" else "إرفاق صورة منيو أو صنف",
-                            fontSize = 12.sp,
-                            color = CafeCyanPrimary,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                        fontSize = 12.sp,
+                        color = CafeCyanPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
 
-                    if (selectedImageUri != null) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .border(1.dp, CafeGold, RoundedCornerShape(10.dp))
+                if (selectedImageUris.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            AsyncImage(
-                                model = selectedImageUri,
-                                contentDescription = "معاينة الصورة المرفقة",
-                                modifier = Modifier.matchParentSize(),
-                                contentScale = ContentScale.Crop
+                            Text(
+                                text = "الصور المرفقة (${selectedImageUris.size}/$MAX_AI_IMAGES):",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CafeGold
                             )
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .size(18.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xCC000000))
-                                    .clickable { selectedImageUri = null },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("×", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            if (selectedImageUris.size > 1) {
+                                Text(
+                                    text = "مسح الكل",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFFF8A8A),
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .clickable { selectedImageUris = emptyList() }
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            itemsIndexed(selectedImageUris) { idx, uriStr ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(58.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .border(1.dp, CafeGold, RoundedCornerShape(10.dp))
+                                ) {
+                                    AsyncImage(
+                                        model = uriStr,
+                                        contentDescription = "معاينة الصورة ${idx + 1}",
+                                        modifier = Modifier.matchParentSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomStart)
+                                            .padding(3.dp)
+                                            .clip(RoundedCornerShape(5.dp))
+                                            .background(Color(0xCC000000))
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                    ) {
+                                        Text(
+                                            text = "${idx + 1}",
+                                            color = CafeGold,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xCC000000))
+                                            .clickable {
+                                                selectedImageUris = selectedImageUris.filterIndexed { i, _ -> i != idx }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("×", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
                             }
                         }
                     }
@@ -332,10 +403,10 @@ fun MenuAiAssistantDialog(
                 // Analyze action button
                 Button(
                     onClick = {
-                        viewModel.analyzeMenuWithAi(commandText, selectedImageUri)
+                        viewModel.analyzeMenuWithAi(commandText, selectedImageUris)
                     },
                     enabled = aiUiState !is AiAssistantUiState.Loading &&
-                        (commandText.isNotBlank() || selectedImageUri != null),
+                        (commandText.isNotBlank() || selectedImageUris.isNotEmpty()),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)

@@ -589,7 +589,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         refreshAiQuota()
     }
 
-    fun analyzeMenuWithAi(command: String, imageUriString: String?) {
+    fun analyzeMenuWithAi(command: String, imageUriStrings: List<String>) {
         val cafeId = _currentUser.value?.id ?: repository.currentCafeteriaId
         refreshAiQuota()
         viewModelScope.launch {
@@ -597,7 +597,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val result = menuAiAssistant.analyzeMenuRequest(
                 cafeId = cafeId,
                 userCommand = command,
-                imageUriString = imageUriString,
+                imageUriStrings = imageUriStrings,
                 categories = categories.value,
                 menuItems = menuItems.value
             )
@@ -607,7 +607,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _aiUiState.value = AiAssistantUiState.Success(
                         replyMessage = reply,
                         actions = actions,
-                        attachedPhotoUri = imageUriString
+                        attachedPhotoUris = imageUriStrings
                     )
                 },
                 onFailure = { error ->
@@ -641,14 +641,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val existingItems = menuItems.value
             val createdCategoriesByName = mutableMapOf<String, String>()
 
-            val needsUploadedImage = selectedActions.any {
-                it.actionType == AiActionType.ATTACH_UPLOADED_IMAGE || it.attachUploadedPhoto
-            }
-            val compressedPhotoBase64 = if (needsUploadedImage && !currentState.attachedPhotoUri.isNullOrBlank()) {
-                withContext(Dispatchers.IO) {
-                    ImageCompressor.uriToCompressedBase64(getApplication(), currentState.attachedPhotoUri)
+            val compressedPhotosByIndex: Map<Int, String> = if (currentState.attachedPhotoUris.isNotEmpty()) {
+                val neededIndices = selectedActions
+                    .filter { it.actionType == AiActionType.ATTACH_UPLOADED_IMAGE || it.attachUploadedPhoto }
+                    .map { (it.imageIndex ?: 0).coerceIn(0, currentState.attachedPhotoUris.lastIndex) }
+                    .distinct()
+                if (neededIndices.isEmpty()) {
+                    emptyMap()
+                } else {
+                    withContext(Dispatchers.IO) {
+                        neededIndices.mapNotNull { idx ->
+                            val uriStr = currentState.attachedPhotoUris.getOrNull(idx)
+                            val compressed = uriStr?.let { ImageCompressor.uriToCompressedBase64(getApplication(), it) }
+                            if (!compressed.isNullOrBlank()) idx to compressed else null
+                        }.toMap()
+                    }
                 }
-            } else null
+            } else {
+                emptyMap()
+            }
 
             // 1. Create any newly requested categories first
             selectedActions.filter { it.actionType == AiActionType.ADD_CATEGORY }.forEach { action ->
@@ -697,6 +708,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 }
                                 else -> fallbackCategoryId
                             }
+                            val resolvedPhoto = if (action.attachUploadedPhoto) {
+                                val idx = action.imageIndex ?: 0
+                                compressedPhotosByIndex[idx] ?: compressedPhotosByIndex.values.firstOrNull()
+                            } else null
                             repository.addMenuItem(
                                 categoryId = resolvedCatId,
                                 nameAr = itemName,
@@ -706,7 +721,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 price = (action.price ?: 1000.0).coerceAtLeast(0.0),
                                 currency = action.currency?.takeIf { it == "$" || it == "د.ع" } ?: "د.ع",
                                 imageType = action.imageType?.ifBlank { "burger" } ?: "burger",
-                                imageUri = if (action.attachUploadedPhoto) compressedPhotoBase64 else null,
+                                imageUri = resolvedPhoto,
                                 isOffer = action.isOffer ?: false,
                                 offerDiscountPercent = (action.offerDiscountPercent ?: 0).coerceIn(0, 99),
                                 offerTag = action.offerTag?.ifBlank { "عرض خاص" } ?: "عرض خاص"
@@ -773,11 +788,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                     AiActionType.ATTACH_UPLOADED_IMAGE -> {
                         val target = findMatchingMenuItem(existingItems, action.itemId, action.itemNameAr)
-                        if (target != null && !compressedPhotoBase64.isNullOrBlank()) {
+                        val resolvedPhoto = compressedPhotosByIndex[action.imageIndex ?: 0]
+                            ?: compressedPhotosByIndex.values.firstOrNull()
+                        if (target != null && !resolvedPhoto.isNullOrBlank()) {
                             val updatedItem = when (action.imageTarget?.lowercase()) {
-                                "bg" -> target.copy(bgImageUri = compressedPhotoBase64)
-                                "gallery" -> target.copy(galleryImages = (target.galleryImages + compressedPhotoBase64).distinct())
-                                else -> target.copy(imageUri = compressedPhotoBase64)
+                                "bg" -> target.copy(bgImageUri = resolvedPhoto)
+                                "gallery" -> target.copy(galleryImages = (target.galleryImages + resolvedPhoto).distinct())
+                                else -> target.copy(imageUri = resolvedPhoto)
                             }
                             repository.updateMenuItem(updatedItem)
                             appliedCount++
